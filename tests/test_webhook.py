@@ -108,6 +108,42 @@ def test_relative_time_filter(client):
     assert relative_time((now - timedelta(days=2)).replace(tzinfo=None)) == "2d ago"
 
 
+def test_humanize_duration(client):
+    from app.main import humanize_duration
+
+    assert humanize_duration(9) == "9s"
+    assert humanize_duration(65) == "1m 05s"
+    assert humanize_duration(4335) == "1h 12m"
+
+
+def test_running_row_carries_a_ticking_duration(client):
+    """In-flight rows expose their start time so the browser can tick the duration."""
+    from sqlmodel import Session, select
+
+    from app.db import engine
+    from app.models import Remediation, RemediationStatus
+
+    body, headers = signed_headers(issue_payload(number=110), "d-110")
+    client.post("/webhooks/github", content=body, headers=headers)
+
+    with Session(engine) as db:
+        row = db.exec(select(Remediation).where(Remediation.issue_number == 110)).one()
+        row.status = RemediationStatus.RUNNING
+        row.finished_at = None
+        db.add(row)
+        db.commit()
+
+    page = client.get("/").text
+    assert 'class="ticking" data-started="' in page
+    assert "/static/dashboard.js" in page
+
+
+def test_dashboard_script_is_served(client):
+    response = client.get("/static/dashboard.js")
+    assert response.status_code == 200
+    assert "setInterval" in response.text
+
+
 def test_stylesheet_is_served(client):
     response = client.get("/static/styles.css")
     assert response.status_code == 200
