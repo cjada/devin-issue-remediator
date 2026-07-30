@@ -26,6 +26,14 @@ class GitHubAPIError(RuntimeError):
     pass
 
 
+class RateLimited(GitHubAPIError):
+    """Raised when GitHub refuses further requests until a reset time."""
+
+    def __init__(self, reset_at: datetime | None) -> None:
+        super().__init__(f"GitHub rate limit exceeded until {reset_at or 'an unknown time'}")
+        self.reset_at = reset_at
+
+
 @dataclass
 class PullRequestOutcome:
     state: PullRequestState
@@ -76,6 +84,21 @@ class GitHubClient:
     def __init__(self, token: str = "", client: httpx.Client | None = None) -> None:
         self._token = token
         self._client = client or httpx.Client(timeout=30.0, base_url="https://api.github.com")
+        self.rate_limited_until: datetime | None = None
+
+    @property
+    def authenticated(self) -> bool:
+        return bool(self._token)
+
+    @property
+    def rate_limited(self) -> bool:
+        """True while GitHub has told us to back off."""
+        if self.rate_limited_until is None:
+            return False
+        if datetime.now(UTC) >= self.rate_limited_until:
+            self.rate_limited_until = None
+            return False
+        return True
 
     @property
     def _headers(self) -> dict[str, str]:
@@ -86,6 +109,9 @@ class GitHubClient:
 
     def _get(self, path: str) -> dict | list:
         response = self._client.get(path, headers=self._headers)
+        if response.status_code in (403, 429) and response.headers.get("x-ratelimit-remaining") == "0":
+            self.rate_limited_until = _reset_time(response.headers.get("x-ratelimit-reset"))
+            raise RateLimited(self.rate_limited_until)
         if response.status_code >= 400:
             raise GitHubAPIError(f"GitHub {path} failed ({response.status_code}): {response.text}")
         return response.json()
@@ -107,15 +133,19 @@ class GitHubClient:
         else:
             state = PullRequestState.OPEN
 
+        # CI and review state only inform a decision that is still open; spending two extra
+        # requests per poll on a merged or closed pull request just burns the rate limit.
         checks = None
-        if sha := (pull.get("head") or {}).get("sha"):
-            payload = self._get(f"/repos/{owner}/{repo}/commits/{sha}/check-runs")
-            check_runs = payload.get("check_runs") if isinstance(payload, dict) else None
-            checks = summarize_checks(check_runs or [])
+        reviews: list = []
+        if state is PullRequestState.OPEN:
+            if sha := (pull.get("head") or {}).get("sha"):
+                payload = self._get(f"/repos/{owner}/{repo}/commits/{sha}/check-runs")
+                check_runs = payload.get("check_runs") if isinstance(payload, dict) else None
+                checks = summarize_checks(check_runs or [])
 
-        reviews = self._get(f"/repos/{owner}/{repo}/pulls/{number}/reviews")
-        if not isinstance(reviews, list):
-            reviews = []
+            fetched = self._get(f"/repos/{owner}/{repo}/pulls/{number}/reviews")
+            if isinstance(fetched, list):
+                reviews = fetched
 
         return PullRequestOutcome(
             state=state,
@@ -126,6 +156,12 @@ class GitHubClient:
             changed_files=pull.get("changed_files", 0),
             merged_at=_parse_timestamp(pull.get("merged_at")),
         )
+
+
+def _reset_time(header: str | None) -> datetime | None:
+    if not header or not header.isdigit():
+        return None
+    return datetime.fromtimestamp(int(header), tz=UTC)
 
 
 def _parse_timestamp(value: str | None) -> datetime | None:

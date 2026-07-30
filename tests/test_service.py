@@ -3,7 +3,7 @@ import pytest
 from app.config import get_settings
 from app.devin_client import CreatedSession, DevinAPIError, SessionState
 from app.github import IssueLabelEvent
-from app.github_api import GitHubAPIError, PullRequestOutcome
+from app.github_api import GitHubAPIError, PullRequestOutcome, RateLimited
 from app.models import (
     ACTIVE_STATUSES,
     PullRequestState,
@@ -134,12 +134,20 @@ class StubGitHub:
         self.outcome = outcome
         self.error = error
         self.calls: list[str] = []
+        self.rate_limited = False
+        self.rate_limited_until = None
 
     def fetch_pull_request(self, pr_url: str):
         self.calls.append(pr_url)
         if self.error:
             raise self.error
         return self.outcome
+
+
+def _outcome(state: PullRequestState) -> PullRequestOutcome:
+    outcome = _merged_outcome()
+    outcome.state = state
+    return outcome
 
 
 def _merged_outcome() -> PullRequestOutcome:
@@ -204,3 +212,55 @@ def test_simulated_rows_are_never_polled(db):
     remediation = db.get(Remediation, accepted.remediation_id)
     assert remediation.dry_run is True
     assert remediation.pr_state is None
+
+
+def _pr_row(db, delivery: str, number: int):
+    client = WaitingClient()
+    accepted = accept_event(db, get_settings(), delivery, _event(number))
+    start_session(db, client, accepted.remediation_id)
+    refresh_active(db, client)
+    remediation = db.get(Remediation, accepted.remediation_id)
+    remediation.dry_run = False
+    db.add(remediation)
+    db.commit()
+    return remediation
+
+
+def test_a_closed_pull_request_replaces_the_open_state(db):
+    remediation = _pr_row(db, "svc-207", 207)
+    refresh_pull_requests(db, StubGitHub(_outcome(PullRequestState.OPEN)))
+    db.refresh(remediation)
+    assert remediation.pr_state is PullRequestState.OPEN
+
+    closed = PullRequestOutcome(
+        state=PullRequestState.CLOSED,
+        checks=None,
+        review_state=None,
+        additions=55,
+        deletions=4,
+        changed_files=2,
+        merged_at=None,
+    )
+    assert refresh_pull_requests(db, StubGitHub(closed)) == 1
+    db.refresh(remediation)
+    assert remediation.pr_state is PullRequestState.CLOSED
+
+
+def test_rate_limiting_stops_the_poll_without_losing_rows(db):
+    _pr_row(db, "svc-208", 208)
+    _pr_row(db, "svc-209", 209)
+
+    limited = StubGitHub(error=RateLimited(None))
+    assert refresh_pull_requests(db, limited) == 0
+    # The first row is attempted, the rest are left for the next poll.
+    assert len(limited.calls) == 1
+
+
+def test_a_rate_limited_client_is_not_polled_at_all(db):
+    _pr_row(db, "svc-210", 210)
+    github = StubGitHub(_merged_outcome())
+    github.rate_limited = True
+    github.rate_limited_until = utcnow()
+
+    assert refresh_pull_requests(db, github) == 0
+    assert github.calls == []

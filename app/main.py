@@ -215,6 +215,7 @@ def dashboard(
     request: Request,
     db: Session = Depends(get_session),
     settings: Settings = Depends(get_app_settings),
+    github: GitHubClient = Depends(get_github_client),
 ) -> HTMLResponse:
     remediations = list(db.exec(select(Remediation).order_by(Remediation.id.desc())))  # type: ignore[union-attr]
     waiting = [r for r in remediations if r.status is RemediationStatus.WAITING_FOR_INPUT]
@@ -247,5 +248,7 @@ def dashboard(
             "merged": len(merged),
             "merge_rate": (100 * len(merged) / len(tracked_prs)) if tracked_prs else None,
             "total_acus": round(total_acus, 2),
+            "pr_polling_paused_until": github.rate_limited_until if github.rate_limited else None,
+            "github_authenticated": github.authenticated,
         },
     )

@@ -10,7 +10,7 @@ from sqlmodel import Session, select
 from app.config import Settings
 from app.devin_client import CreatedSession, DevinClient, SessionState
 from app.github import IssueLabelEvent
-from app.github_api import GitHubClient
+from app.github_api import GitHubClient, RateLimited
 from app.models import (
     ACTIVE_STATUSES,
     PullRequestState,
@@ -167,6 +167,8 @@ def refresh_pull_request(db: Session, github: GitHubClient, remediation: Remedia
         return
     try:
         outcome = github.fetch_pull_request(remediation.pr_url)
+    except RateLimited:
+        raise
     except Exception as exc:  # noqa: BLE001 - PR enrichment must never break the poller
         logger.warning("Failed to read %s: %s", remediation.pr_url, exc)
         return
@@ -195,9 +197,17 @@ def refresh_pull_requests(db: Session, github: GitHubClient) -> int:
         )
         | Remediation.pr_state.is_(None),  # type: ignore[union-attr]
     )
+    if github.rate_limited:
+        logger.info("Skipping pull request poll until %s", github.rate_limited_until)
+        return 0
+
     pending = list(db.exec(statement))
-    for remediation in pending:
-        refresh_pull_request(db, github, remediation)
+    for index, remediation in enumerate(pending):
+        try:
+            refresh_pull_request(db, github, remediation)
+        except RateLimited as exc:
+            logger.warning("%s; %s pull requests left unpolled", exc, len(pending) - index)
+            return index
     return len(pending)
 
 

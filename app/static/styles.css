@@ -167,6 +167,14 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent) 4%, transparent); 
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
 .substatus { display: block; color: var(--muted); font-size: 0.72rem; margin-top: 0.25rem; }
 
+.notice {
+  background: var(--warn-bg); color: var(--warn);
+  border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent);
+  border-radius: var(--radius); padding: 0.75rem 1rem;
+  font-size: 0.85rem; margin-bottom: 1.25rem;
+}
+.notice code { color: inherit; }
+
 .empty { padding: 1rem 1.1rem; color: var(--muted); font-size: 0.85rem; margin: 0; }
 
 footer { color: var(--muted); font-size: 0.78rem; text-align: center; margin-top: 2rem; }

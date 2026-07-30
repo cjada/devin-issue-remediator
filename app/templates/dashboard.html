@@ -30,6 +30,15 @@
     </div>
   </header>
 
+  {% if pr_polling_paused_until %}
+  <div class="notice">
+    <strong>Pull request status is stale.</strong>
+    GitHub's rate limit is exhausted, so merge, CI and review state below may be out of date.
+    Polling resumes at {{ pr_polling_paused_until.strftime('%H:%M UTC') }}{% if not github_authenticated %};
+    set <code>GITHUB_TOKEN</code> to raise the limit from 60 to 5,000 requests per hour{% endif %}.
+  </div>
+  {% endif %}
+
   <section class="stats">
     <div class="stat"><div class="value">{{ total }}</div><div class="label">Total</div></div>
     <div class="stat is-active"><div class="value">{{ active | length }}</div><div class="label">Active</div></div>

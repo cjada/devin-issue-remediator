@@ -6,6 +6,7 @@ import pytest
 from app.github_api import (
     GitHubAPIError,
     GitHubClient,
+    RateLimited,
     parse_pr_url,
     summarize_checks,
     summarize_reviews,
@@ -59,16 +60,16 @@ def _client(handler) -> GitHubClient:
     )
 
 
-def test_fetch_pull_request_reports_a_merged_pr():
+def test_fetch_pull_request_reports_checks_reviews_and_diff():
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/pulls/4"):
             assert request.headers["Authorization"] == "Bearer t"
             return httpx.Response(
                 200,
                 json={
-                    "state": "closed",
-                    "merged": True,
-                    "merged_at": "2026-07-30T22:15:00Z",
+                    "state": "open",
+                    "merged": False,
+                    "merged_at": None,
                     "additions": 55,
                     "deletions": 4,
                     "changed_files": 2,
@@ -83,11 +84,10 @@ def test_fetch_pull_request_reports_a_merged_pr():
 
     outcome = _client(handler).fetch_pull_request("https://github.com/cjada/superset/pull/4")
     assert outcome is not None
-    assert outcome.state is PullRequestState.MERGED
+    assert outcome.state is PullRequestState.OPEN
     assert outcome.checks == "passing"
     assert outcome.review_state == "approved"
     assert (outcome.additions, outcome.deletions, outcome.changed_files) == (55, 4, 2)
-    assert outcome.merged_at == datetime(2026, 7, 30, 22, 15, tzinfo=UTC)
 
 
 def test_closed_without_merge_is_distinct_from_merged():
@@ -148,3 +148,57 @@ def test_token_is_optional():
     outcome = client.fetch_pull_request("https://github.com/cjada/superset/pull/1")
     assert outcome is not None
     assert outcome.state is PullRequestState.OPEN
+
+
+def _rate_limited(reset: str | None = "4102444800") -> httpx.Response:
+    headers = {"x-ratelimit-remaining": "0"}
+    if reset:
+        headers["x-ratelimit-reset"] = reset
+    return httpx.Response(403, json={"message": "API rate limit exceeded"}, headers=headers)
+
+
+def test_rate_limit_is_distinguished_from_other_errors():
+    client = _client(lambda request: _rate_limited())
+    with pytest.raises(RateLimited) as exc:
+        client.fetch_pull_request("https://github.com/cjada/superset/pull/4")
+    assert exc.value.reset_at == datetime(2100, 1, 1, tzinfo=UTC)
+    assert client.rate_limited is True
+
+
+def test_rate_limit_expires():
+    client = _client(lambda request: _rate_limited(reset="1"))
+    with pytest.raises(RateLimited):
+        client.fetch_pull_request("https://github.com/cjada/superset/pull/4")
+    assert client.rate_limited is False
+
+
+def test_a_plain_403_is_not_a_rate_limit():
+    client = _client(lambda request: httpx.Response(403, text="no access"))
+    with pytest.raises(GitHubAPIError) as exc:
+        client.fetch_pull_request("https://github.com/cjada/superset/pull/4")
+    assert not isinstance(exc.value, RateLimited)
+    assert client.rate_limited is False
+
+
+def test_terminal_pull_requests_cost_a_single_request():
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        return httpx.Response(
+            200,
+            json={
+                "state": "closed",
+                "merged": True,
+                "merged_at": "2026-07-30T22:15:00Z",
+                "additions": 1,
+                "deletions": 1,
+                "changed_files": 1,
+                "head": {"sha": "abc"},
+            },
+        )
+
+    outcome = _client(handler).fetch_pull_request("https://github.com/cjada/superset/pull/4")
+    assert outcome is not None and outcome.state is PullRequestState.MERGED
+    assert outcome.merged_at == datetime(2026, 7, 30, 22, 15, tzinfo=UTC)
+    assert calls == ["/repos/cjada/superset/pulls/4"]
