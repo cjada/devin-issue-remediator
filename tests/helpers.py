@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import json
 from typing import Any
+from urllib.parse import urlencode
 
 from tests.conftest import TEST_SECRET
 
@@ -37,3 +38,20 @@ def signed_headers(
         "X-GitHub-Delivery": delivery_id,
         "Content-Type": "application/json",
     }
+
+
+def signed_form_body(
+    body: bytes, delivery_id: str, secret: str = TEST_SECRET
+) -> tuple[bytes, dict[str, str]]:
+    """Sign a raw body delivered with GitHub's default form content type."""
+    signature = "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+    return body, {
+        "X-Hub-Signature-256": signature,
+        "X-GitHub-Event": "issues",
+        "X-GitHub-Delivery": delivery_id,
+        "Content-Type": "application/x-www-form-urlencoded",
+    }
+
+
+def form_encoded(payload: dict[str, Any]) -> bytes:
+    return urlencode({"payload": json.dumps(payload)}).encode()

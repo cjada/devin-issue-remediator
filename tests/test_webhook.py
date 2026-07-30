@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
-from tests.helpers import issue_payload, signed_headers
+from tests.helpers import form_encoded, issue_payload, signed_form_body, signed_headers
 
 
 def test_rejects_invalid_signature(client):
@@ -46,6 +46,22 @@ def test_duplicate_delivery_is_ignored(client):
 
     listed = client.get("/api/remediations").json()
     assert len([r for r in listed if r["issue_number"] == 102]) == 1
+
+
+def test_accepts_form_encoded_delivery(client):
+    """GitHub's default content type is application/x-www-form-urlencoded."""
+    body, headers = signed_form_body(form_encoded(issue_payload(number=108)), "d-108")
+    response = client.post("/webhooks/github", content=body, headers=headers)
+    assert response.status_code == 202
+    assert response.json()["status"] == "accepted"
+
+    listed = client.get("/api/remediations").json()
+    assert any(r["issue_number"] == 108 for r in listed)
+
+
+def test_form_body_without_payload_is_rejected(client):
+    body, headers = signed_form_body(b"nope=1", "d-109")
+    assert client.post("/webhooks/github", content=body, headers=headers).status_code == 400
 
 
 def test_other_labels_are_ignored(client):

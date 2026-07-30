@@ -6,6 +6,7 @@ import logging
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import parse_qs
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -122,8 +123,8 @@ async def github_webhook(
         return JSONResponse({"status": "ignored", "reason": f"event {event!r}"}, status_code=202)
 
     try:
-        payload = json.loads(raw_body)
-    except json.JSONDecodeError as exc:
+        payload = _decode_payload(raw_body, request.headers.get("content-type", ""))
+    except ValueError as exc:
         raise HTTPException(status_code=400, detail="invalid JSON body") from exc
 
     parsed = parse_issue_label_event(payload)
@@ -142,6 +143,16 @@ async def github_webhook(
         {"status": "accepted", "remediation_id": accepted.remediation_id, "dry_run": settings.dry_run},
         status_code=202,
     )
+
+
+def _decode_payload(raw_body: bytes, content_type: str) -> dict:
+    """Decode a webhook body sent as JSON or as GitHub's default form encoding."""
+    if content_type.startswith("application/x-www-form-urlencoded"):
+        fields = parse_qs(raw_body.decode())
+        if "payload" not in fields:
+            raise ValueError("form body without a payload field")
+        return json.loads(fields["payload"][0])
+    return json.loads(raw_body)
 
 
 def _process(remediation_id: int, client: DevinClientProtocol) -> None:
