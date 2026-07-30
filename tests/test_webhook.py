@@ -1,4 +1,6 @@
-from tests.helpers import issue_payload, signed_headers
+from datetime import UTC, datetime, timedelta
+
+from tests.helpers import form_encoded, issue_payload, signed_form_body, signed_headers
 
 
 def test_rejects_invalid_signature(client):
@@ -46,6 +48,22 @@ def test_duplicate_delivery_is_ignored(client):
     assert len([r for r in listed if r["issue_number"] == 102]) == 1
 
 
+def test_accepts_form_encoded_delivery(client):
+    """GitHub's default content type is application/x-www-form-urlencoded."""
+    body, headers = signed_form_body(form_encoded(issue_payload(number=108)), "d-108")
+    response = client.post("/webhooks/github", content=body, headers=headers)
+    assert response.status_code == 202
+    assert response.json()["status"] == "accepted"
+
+    listed = client.get("/api/remediations").json()
+    assert any(r["issue_number"] == 108 for r in listed)
+
+
+def test_form_body_without_payload_is_rejected(client):
+    body, headers = signed_form_body(b"nope=1", "d-109")
+    assert client.post("/webhooks/github", content=body, headers=headers).status_code == 400
+
+
 def test_other_labels_are_ignored(client):
     body, headers = signed_headers(issue_payload(label="bug", number=103), "d-103")
     response = client.post("/webhooks/github", content=body, headers=headers)
@@ -76,6 +94,16 @@ def test_dashboard_renders(client):
     assert page.status_code == 200
     assert "Devin Issue Remediator" in page.text
     assert "cjada/superset#107" in page.text
+
+
+def test_relative_time_filter(client):
+    from app.main import relative_time
+
+    now = datetime.now(UTC)
+    assert relative_time(now) == "just now"
+    assert relative_time(now - timedelta(minutes=5)) == "5m ago"
+    assert relative_time(now - timedelta(hours=3)) == "3h ago"
+    assert relative_time((now - timedelta(days=2)).replace(tzinfo=None)) == "2d ago"
 
 
 def test_stylesheet_is_served(client):

@@ -4,7 +4,9 @@ import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import parse_qs
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -31,6 +33,26 @@ logger = logging.getLogger(__name__)
 
 ASSETS = Path(__file__).parent
 TEMPLATES = Jinja2Templates(directory=str(ASSETS / "templates"))
+
+
+def relative_time(value: datetime) -> str:
+    """Render a timestamp as a compact age, e.g. `4m ago`."""
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    seconds = int((datetime.now(UTC) - value).total_seconds())
+    if seconds < 60:
+        return "just now"
+    if seconds < 3600:
+        return f"{seconds // 60}m ago"
+    if seconds < 86400:
+        return f"{seconds // 3600}h ago"
+    return f"{seconds // 86400}d ago"
+
+
+TEMPLATES.env.filters["relative_time"] = relative_time
+
+# Cache-busting token so restyled CSS is picked up without a hard refresh.
+ASSET_VERSION = str(int((ASSETS / "static" / "styles.css").stat().st_mtime))
 
 
 async def _poller(app: FastAPI) -> None:
@@ -101,8 +123,8 @@ async def github_webhook(
         return JSONResponse({"status": "ignored", "reason": f"event {event!r}"}, status_code=202)
 
     try:
-        payload = json.loads(raw_body)
-    except json.JSONDecodeError as exc:
+        payload = _decode_payload(raw_body, request.headers.get("content-type", ""))
+    except ValueError as exc:
         raise HTTPException(status_code=400, detail="invalid JSON body") from exc
 
     parsed = parse_issue_label_event(payload)
@@ -121,6 +143,16 @@ async def github_webhook(
         {"status": "accepted", "remediation_id": accepted.remediation_id, "dry_run": settings.dry_run},
         status_code=202,
     )
+
+
+def _decode_payload(raw_body: bytes, content_type: str) -> dict:
+    """Decode a webhook body sent as JSON or as GitHub's default form encoding."""
+    if content_type.startswith("application/x-www-form-urlencoded"):
+        fields = parse_qs(raw_body.decode())
+        if "payload" not in fields:
+            raise ValueError("form body without a payload field")
+        return json.loads(fields["payload"][0])
+    return json.loads(raw_body)
 
 
 def _process(remediation_id: int, client: DevinClientProtocol) -> None:
@@ -165,6 +197,9 @@ def dashboard(
         {
             "dry_run": settings.dry_run,
             "trigger_label": settings.trigger_label,
+            "repos": sorted(settings.allowed_repo_set),
+            "asset_version": ASSET_VERSION,
+            "generated_at": datetime.now(UTC),
             "active": active,
             "completed": completed,
             "failed": failed,
