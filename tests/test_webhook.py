@@ -78,5 +78,11 @@ def test_dashboard_renders(client):
     assert "cjada/superset#107" in page.text
 
 
+def test_stylesheet_is_served(client):
+    response = client.get("/static/styles.css")
+    assert response.status_code == 200
+    assert "text/css" in response.headers["content-type"]
+
+
 def test_healthz(client):
     assert client.get("/healthz").json() == {"status": "ok", "dry_run": True}

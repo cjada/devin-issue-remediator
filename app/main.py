@@ -8,6 +8,7 @@ from pathlib import Path
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, select
 
@@ -28,7 +29,8 @@ from app.service import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+ASSETS = Path(__file__).parent
+TEMPLATES = Jinja2Templates(directory=str(ASSETS / "templates"))
 
 
 async def _poller(app: FastAPI) -> None:
@@ -61,6 +63,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Devin Issue Remediator", lifespan=lifespan)
+app.mount("/static", StaticFiles(directory=str(ASSETS / "static")), name="static")
 
 
 def get_client(request: Request) -> DevinClientProtocol:
