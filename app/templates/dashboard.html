@@ -79,9 +79,27 @@
             {% else %}<span class="muted">—</span>{% endif %}
           </td>
           <td class="nums" data-label="ACUs">{{ r.acus_consumed if r.acus_consumed is not none else "—" }}</td>
-          <td class="nums" data-label="Duration">{{ "%.0fs" | format(r.duration_seconds) if r.duration_seconds is not none else "—" }}</td>
+          <td class="nums" data-label="Duration">
+            {%- if r.duration_seconds is none -%}
+              <span class="muted">—</span>
+            {%- elif r.finished_at is none -%}
+              <span class="ticking" data-started="{{ r.session_started_at | iso_utc }}">{{ r.duration_seconds | humanize_duration }}</span>
+            {%- else -%}
+              {{ r.duration_seconds | humanize_duration }}
+            {%- endif -%}
+          </td>
           <td class="nums muted" data-label="Updated" title="{{ r.updated_at.strftime('%Y-%m-%d %H:%M UTC') }}">{{ r.updated_at | relative_time }}</td>
-          <td data-label="Details">{% if r.error %}<span class="err-text">{{ r.error }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+          <td data-label="Details">
+            {%- if r.error -%}
+              <span class="err-text">{{ r.error }}</span>
+            {%- elif r.pr_url -%}
+              <span class="muted">pull request opened</span>
+            {%- elif r.status.value == "completed" -%}
+              <span class="muted">finished without opening a pull request</span>
+            {%- else -%}
+              <span class="muted">—</span>
+            {%- endif -%}
+          </td>
         </tr>
         {% endfor %}
       </tbody>
@@ -101,5 +119,6 @@
     <a href="/api/remediations">JSON</a> · <a href="/healthz">health</a>
   </footer>
 </div>
+<script src="/static/dashboard.js?v={{ asset_version }}" defer></script>
 </body>
 </html>

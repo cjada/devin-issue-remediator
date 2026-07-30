@@ -49,10 +49,29 @@ def relative_time(value: datetime) -> str:
     return f"{seconds // 86400}d ago"
 
 
-TEMPLATES.env.filters["relative_time"] = relative_time
+def humanize_duration(seconds: float) -> str:
+    """Render a duration as `42s`, `5m 03s` or `1h 12m`."""
+    total = int(seconds)
+    if total < 60:
+        return f"{total}s"
+    if total < 3600:
+        return f"{total // 60}m {total % 60:02d}s"
+    return f"{total // 3600}h {(total % 3600) // 60:02d}m"
 
-# Cache-busting token so restyled CSS is picked up without a hard refresh.
-ASSET_VERSION = str(int((ASSETS / "static" / "styles.css").stat().st_mtime))
+
+def iso_utc(value: datetime) -> str:
+    """Serialise a timestamp for the browser, assuming naive values are UTC."""
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return value.isoformat()
+
+
+TEMPLATES.env.filters["relative_time"] = relative_time
+TEMPLATES.env.filters["humanize_duration"] = humanize_duration
+TEMPLATES.env.filters["iso_utc"] = iso_utc
+
+# Cache-busting token so restyled assets are picked up without a hard refresh.
+ASSET_VERSION = str(int(max(path.stat().st_mtime for path in (ASSETS / "static").iterdir())))
 
 
 async def _poller(app: FastAPI) -> None:
