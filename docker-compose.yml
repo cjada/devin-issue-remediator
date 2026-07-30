@@ -7,6 +7,8 @@ services:
       - .env
     environment:
       DATABASE_URL: sqlite:////app/data/remediator.db
+      # Only the reverse proxy in front of the container should be trusted here.
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
     volumes:
       - ./data:/app/data
     restart: unless-stopped
