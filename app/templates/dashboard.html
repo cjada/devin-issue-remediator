@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Devin Issue Remediator</title>
   <meta http-equiv="refresh" content="30" />
-  <link rel="stylesheet" href="{{ url_for('static', path='styles.css') }}" />
+  <link rel="stylesheet" href="{{ url_for('static', path='styles.css') }}?v={{ asset_version }}" />
 </head>
 <body>
 <div class="wrap">
@@ -14,7 +14,11 @@
       <div class="logo">DR</div>
       <div>
         <h1>Devin Issue Remediator</h1>
-        <p class="subtitle">GitHub issues labelled <code>{{ trigger_label }}</code> become Devin sessions and pull requests.</p>
+        <p class="subtitle">
+          Issues labelled <code>{{ trigger_label }}</code> on
+          {% for repo in repos %}<code>{{ repo }}</code>{% if not loop.last %}, {% endif %}{% else %}any repository{% endfor %}
+          become Devin sessions and pull requests.
+        </p>
       </div>
     </div>
     <div class="badges">
@@ -23,7 +27,6 @@
       {% else %}
         <span class="badge mode-real"><span class="dot"></span>Live · Devin API</span>
       {% endif %}
-      <span class="badge">trigger <code>{{ trigger_label }}</code></span>
     </div>
   </header>
 
@@ -55,6 +58,7 @@
         <tr>
           <td data-label="Issue">
             <a class="issue-ref" href="{{ r.issue_url }}">{{ r.repo_full_name }}#{{ r.issue_number }}</a>
+            {% if r.dry_run %}<span class="tag">simulated</span>{% endif %}
             <div class="issue-title">{{ r.issue_title }}</div>
           </td>
           <td data-label="Status">
@@ -76,7 +80,7 @@
           </td>
           <td class="nums" data-label="ACUs">{{ r.acus_consumed if r.acus_consumed is not none else "—" }}</td>
           <td class="nums" data-label="Duration">{{ "%.0fs" | format(r.duration_seconds) if r.duration_seconds is not none else "—" }}</td>
-          <td class="nums muted" data-label="Updated">{{ r.updated_at.strftime("%b %d, %H:%M") }}</td>
+          <td class="nums muted" data-label="Updated" title="{{ r.updated_at.strftime('%Y-%m-%d %H:%M UTC') }}">{{ r.updated_at | relative_time }}</td>
           <td data-label="Details">{% if r.error %}<span class="err-text">{{ r.error }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
         </tr>
         {% endfor %}
@@ -88,11 +92,14 @@
   </section>
   {% endmacro %}
 
-  {{ section("Active", active, "No remediation in flight.") }}
+  {{ section("Active", active, "Nothing in flight — label an issue to start a remediation.") }}
   {{ section("Completed", completed, "No completed remediation yet.") }}
   {{ section("Failed", failed, "No failures.") }}
 
-  <footer>Auto-refreshes every 30s · <a href="/api/remediations">JSON</a> · <a href="/healthz">health</a></footer>
+  <footer>
+    Updated {{ generated_at.strftime("%H:%M UTC") }} · auto-refreshes every 30s ·
+    <a href="/api/remediations">JSON</a> · <a href="/healthz">health</a>
+  </footer>
 </div>
 </body>
 </html>

@@ -1,3 +1,5 @@
+from datetime import UTC, datetime, timedelta
+
 from tests.helpers import issue_payload, signed_headers
 
 
@@ -76,6 +78,16 @@ def test_dashboard_renders(client):
     assert page.status_code == 200
     assert "Devin Issue Remediator" in page.text
     assert "cjada/superset#107" in page.text
+
+
+def test_relative_time_filter(client):
+    from app.main import relative_time
+
+    now = datetime.now(UTC)
+    assert relative_time(now) == "just now"
+    assert relative_time(now - timedelta(minutes=5)) == "5m ago"
+    assert relative_time(now - timedelta(hours=3)) == "3h ago"
+    assert relative_time((now - timedelta(days=2)).replace(tzinfo=None)) == "2d ago"
 
 
 def test_stylesheet_is_served(client):

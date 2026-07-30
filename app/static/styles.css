@@ -68,6 +68,10 @@ a:hover { text-decoration: underline; }
 }
 h1 { font-size: 1.35rem; margin: 0; letter-spacing: -0.02em; }
 .subtitle { color: var(--muted); font-size: 0.82rem; margin: 0; }
+.subtitle code, .badge code {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 5px;
+  padding: 0.02rem 0.3rem; font-size: 0.78em;
+}
 
 .badges { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 .badge {
@@ -125,8 +129,13 @@ tbody td { padding: 0.8rem 1.1rem; border-top: 1px solid var(--border); vertical
 tbody tr:hover { background: color-mix(in srgb, var(--accent) 4%, transparent); }
 
 .issue-ref { font-weight: 600; }
+.tag {
+  display: inline-block; margin-left: 0.4rem; padding: 0.05rem 0.4rem;
+  border-radius: 5px; border: 1px solid var(--border);
+  color: var(--muted); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em;
+}
 .issue-title { color: var(--muted); font-size: 0.82rem; margin-top: 0.15rem; max-width: 34ch; }
-.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8rem; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8rem; white-space: nowrap; }
 .muted { color: var(--muted); }
 .nums { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .err-text { color: var(--err); font-size: 0.8rem; max-width: 30ch; }
@@ -143,7 +152,7 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent) 4%, transparent); 
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
 .substatus { display: block; color: var(--muted); font-size: 0.72rem; margin-top: 0.25rem; }
 
-.empty { padding: 1.6rem 1.1rem; color: var(--muted); text-align: center; font-size: 0.85rem; }
+.empty { padding: 1rem 1.1rem; color: var(--muted); font-size: 0.85rem; margin: 0; }
 
 footer { color: var(--muted); font-size: 0.78rem; text-align: center; margin-top: 2rem; }
 
