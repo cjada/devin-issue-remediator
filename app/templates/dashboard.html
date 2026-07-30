@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Devin Issue Remediator</title>
+  <meta http-equiv="refresh" content="30" />
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: ui-sans-serif, system-ui, sans-serif; margin: 2rem auto; max-width: 1100px; padding: 0 1rem; }
+    h1 { margin-bottom: 0.25rem; }
+    .mode { font-size: 0.85rem; padding: 0.15rem 0.5rem; border-radius: 999px; background: #eee; color: #333; }
+    .stats { display: flex; gap: 1.5rem; margin: 1rem 0 2rem; flex-wrap: wrap; }
+    .stat { border: 1px solid #ddd; border-radius: 8px; padding: 0.75rem 1rem; min-width: 8rem; }
+    .stat b { display: block; font-size: 1.5rem; }
+    table { border-collapse: collapse; width: 100%; margin-bottom: 2rem; font-size: 0.9rem; }
+    th, td { border-bottom: 1px solid #ddd; text-align: left; padding: 0.45rem 0.5rem; vertical-align: top; }
+    .status { font-weight: 600; }
+    .failed { color: #b00020; }
+    .completed { color: #0a7d33; }
+    .empty { color: #777; font-style: italic; }
+    code { font-size: 0.85em; }
+  </style>
+</head>
+<body>
+  <h1>Devin Issue Remediator</h1>
+  <p>
+    <span class="mode">{{ "DRY RUN (simulated Devin)" if dry_run else "REAL (live Devin API)" }}</span>
+    trigger label: <code>{{ trigger_label }}</code>
+  </p>
+
+  <div class="stats">
+    <div class="stat"><b>{{ total }}</b>total</div>
+    <div class="stat"><b>{{ active | length }}</b>active</div>
+    <div class="stat"><b>{{ completed | length }}</b>completed</div>
+    <div class="stat"><b>{{ failed | length }}</b>failed</div>
+    <div class="stat"><b>{{ "%.0f%%" | format(pr_rate) if pr_rate is not none else "—" }}</b>completed with PR</div>
+    <div class="stat"><b>{{ total_acus }}</b>ACUs used</div>
+  </div>
+
+  {% macro table(rows, kind) %}
+    {% if rows %}
+    <table>
+      <thead>
+        <tr>
+          <th>Issue</th><th>Status</th><th>Devin session</th><th>Pull request</th>
+          <th>ACUs</th><th>Duration</th><th>Updated</th><th>Error</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td><a href="{{ r.issue_url }}">{{ r.repo_full_name }}#{{ r.issue_number }}</a><br />{{ r.issue_title }}</td>
+          <td class="status {{ kind }}">{{ r.status.value }}{% if r.session_status %}<br /><small>{{ r.session_status }}</small>{% endif %}</td>
+          <td>{% if r.session_url %}<a href="{{ r.session_url }}">{{ r.session_id }}</a>{% else %}<span class="empty">none</span>{% endif %}</td>
+          <td>{% if r.pr_url %}<a href="{{ r.pr_url }}">{{ r.pr_url.split('/')[-1] }}</a>{% else %}<span class="empty">—</span>{% endif %}</td>
+          <td>{{ r.acus_consumed if r.acus_consumed is not none else "—" }}</td>
+          <td>{{ "%.0fs" | format(r.duration_seconds) if r.duration_seconds is not none else "—" }}</td>
+          <td>{{ r.updated_at.strftime("%Y-%m-%d %H:%M") }}</td>
+          <td>{{ r.error or "" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="empty">Nothing here yet.</p>
+    {% endif %}
+  {% endmacro %}
+
+  <h2>Active</h2>{{ table(active, "active") }}
+  <h2>Completed</h2>{{ table(completed, "completed") }}
+  <h2>Failed</h2>{{ table(failed, "failed") }}
+</body>
+</html>
