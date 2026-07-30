@@ -26,10 +26,16 @@ class SessionState:
     pr_urls: list[str]
 
     TERMINAL = ("exit", "error", "suspended")
+    AWAITING_INPUT = ("waiting_for_user", "blocked")
 
     @property
     def is_terminal(self) -> bool:
         return self.status in self.TERMINAL
+
+    @property
+    def awaiting_input(self) -> bool:
+        """The session is alive but idle until a human replies."""
+        return self.status_detail in self.AWAITING_INPUT
 
     @property
     def failed(self) -> bool:

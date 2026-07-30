@@ -14,6 +14,7 @@ class RemediationStatus(StrEnum):
     QUEUED = "queued"
     SESSION_CREATED = "session_created"
     RUNNING = "running"
+    WAITING_FOR_INPUT = "waiting_for_input"
     COMPLETED = "completed"
     FAILED = "failed"
 
@@ -22,7 +23,14 @@ ACTIVE_STATUSES = (
     RemediationStatus.QUEUED,
     RemediationStatus.SESSION_CREATED,
     RemediationStatus.RUNNING,
+    RemediationStatus.WAITING_FOR_INPUT,
 )
+
+
+class PullRequestState(StrEnum):
+    OPEN = "open"
+    MERGED = "merged"
+    CLOSED = "closed"
 
 
 class WebhookDelivery(SQLModel, table=True):
@@ -53,7 +61,17 @@ class Remediation(SQLModel, table=True):
     session_id: str | None = Field(default=None, index=True)
     session_url: str | None = None
     session_status: str | None = None
+    session_status_detail: str | None = None
+
     pr_url: str | None = None
+    pr_state: PullRequestState | None = None
+    pr_checks: str | None = None
+    pr_review_state: str | None = None
+    pr_additions: int | None = None
+    pr_deletions: int | None = None
+    pr_changed_files: int | None = None
+    pr_merged_at: datetime | None = None
+
     acus_consumed: float | None = None
     error: str | None = None
 
@@ -73,3 +91,10 @@ class Remediation(SQLModel, table=True):
         if end.tzinfo is None:
             end = end.replace(tzinfo=UTC)
         return (end - start).total_seconds()
+
+    @property
+    def diff_summary(self) -> str | None:
+        if self.pr_additions is None or self.pr_deletions is None:
+            return None
+        files = self.pr_changed_files or 0
+        return f"+{self.pr_additions} −{self.pr_deletions} · {files} file{'s' if files != 1 else ''}"

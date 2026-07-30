@@ -17,7 +17,8 @@ from sqlmodel import Session, select
 from app.config import Settings, get_settings
 from app.db import engine, get_session, init_db
 from app.github import parse_issue_label_event, verify_signature
-from app.models import ACTIVE_STATUSES, Remediation, RemediationStatus
+from app.github_api import GitHubClient
+from app.models import ACTIVE_STATUSES, PullRequestState, Remediation, RemediationStatus
 from app.service import (
     DevinClientProtocol,
     DuplicateDelivery,
@@ -25,6 +26,7 @@ from app.service import (
     accept_event,
     build_client,
     refresh_active,
+    refresh_pull_requests,
     start_session,
 )
 
@@ -87,6 +89,7 @@ async def _poller(app: FastAPI) -> None:
 def _refresh_once(app: FastAPI) -> None:
     with Session(engine) as db:
         refresh_active(db, app.state.devin_client)
+        refresh_pull_requests(db, app.state.github_client)
 
 
 @asynccontextmanager
@@ -95,6 +98,7 @@ async def lifespan(app: FastAPI):
     app.state.settings = settings
     init_db()
     app.state.devin_client = build_client(settings)
+    app.state.github_client = GitHubClient(settings.github_token)
     logger.info("Started in %s mode", "DRY_RUN" if settings.dry_run else "REAL")
     task = asyncio.create_task(_poller(app))
     try:
@@ -185,12 +189,20 @@ def _process(remediation_id: int, client: DevinClientProtocol) -> None:
             refresh_remediation(db, client, remediation)
 
 
+def get_github_client(request: Request) -> GitHubClient:
+    return request.app.state.github_client
+
+
 @app.post("/api/refresh")
 def refresh_now(
     db: Session = Depends(get_session),
     client: DevinClientProtocol = Depends(get_client),
+    github: GitHubClient = Depends(get_github_client),
 ) -> dict[str, int]:
-    return {"refreshed": refresh_active(db, client)}
+    return {
+        "refreshed": refresh_active(db, client),
+        "pull_requests": refresh_pull_requests(db, github),
+    }
 
 
 @app.get("/api/remediations")
@@ -205,10 +217,17 @@ def dashboard(
     settings: Settings = Depends(get_app_settings),
 ) -> HTMLResponse:
     remediations = list(db.exec(select(Remediation).order_by(Remediation.id.desc())))  # type: ignore[union-attr]
-    active = [r for r in remediations if r.status in ACTIVE_STATUSES]
+    waiting = [r for r in remediations if r.status is RemediationStatus.WAITING_FOR_INPUT]
+    active = [
+        r
+        for r in remediations
+        if r.status in ACTIVE_STATUSES and r.status is not RemediationStatus.WAITING_FOR_INPUT
+    ]
     completed = [r for r in remediations if r.status is RemediationStatus.COMPLETED]
     failed = [r for r in remediations if r.status is RemediationStatus.FAILED]
     with_pr = [r for r in completed if r.pr_url]
+    merged = [r for r in remediations if r.pr_state is PullRequestState.MERGED]
+    tracked_prs = [r for r in remediations if r.pr_state is not None]
     total_acus = sum(r.acus_consumed or 0 for r in remediations)
     return TEMPLATES.TemplateResponse(
         request,
@@ -220,10 +239,13 @@ def dashboard(
             "asset_version": ASSET_VERSION,
             "generated_at": datetime.now(UTC),
             "active": active,
+            "waiting": waiting,
             "completed": completed,
             "failed": failed,
             "total": len(remediations),
             "pr_rate": (100 * len(with_pr) / len(completed)) if completed else None,
+            "merged": len(merged),
+            "merge_rate": (100 * len(merged) / len(tracked_prs)) if tracked_prs else None,
             "total_acus": round(total_acus, 2),
         },
     )

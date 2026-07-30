@@ -33,6 +33,7 @@ SQLite (SQLModel)  ───────────►  Server-rendered dashboa
 | `app/github.py` | Webhook signature verification and `issues.labeled` parsing |
 | `app/service.py` | Idempotency, event filtering, session lifecycle, status refresh |
 | `app/devin_client.py` | Devin v3 organization API client (service-user bearer auth) |
+| `app/github_api.py` | Read-only GitHub client for pull request outcomes (state, CI, reviews, diff) |
 | `app/simulation.py` | Dry-run client that fabricates a finished session, no network |
 | `app/prompt.py` | Builds the remediation prompt (issue + acceptance criteria + rules) |
 | `app/models.py` | `Remediation` and `WebhookDelivery` SQLModel tables |
@@ -51,7 +52,16 @@ SQLite (SQLModel)  ───────────►  Server-rendered dashboa
 - **One client interface, two implementations** (`DevinClient` / `SimulatedDevinClient`) chosen
   by `DRY_RUN`. Real mode refuses to start without `DEVIN_API_KEY` and `DEVIN_ORG_ID`, so it can
   never silently fall back to simulation.
-- **Server-rendered Jinja2 dashboard** with a 30s meta-refresh — no frontend build step.
+- **Server-rendered Jinja2 dashboard** with a 30s meta-refresh — no frontend build step. The only
+  client-side script ticks the elapsed time of in-flight sessions.
+- **Outcome tracking is separate from session tracking.** Devin reports that a session ended; it
+  cannot report whether the fix was accepted. A second poller reads each pull request from GitHub
+  for merge state, CI conclusion, review state and diff size, so the dashboard can show a merge
+  rate rather than just a completion rate. A closed-unmerged PR is a failed remediation even
+  though the session succeeded.
+- **`waiting_for_input` is a first-class status.** `status_detail == "waiting_for_user"` means the
+  session is alive but idle until a human replies — the only state that needs someone's attention,
+  so it gets its own dashboard section instead of hiding inside "running".
 
 ## Setup
 
@@ -74,6 +84,7 @@ All credentials come from environment variables (`.env` is git-ignored; never co
 | `GITHUB_WEBHOOK_SECRET` | – | Shared secret for `X-Hub-Signature-256` verification (required) |
 | `TRIGGER_LABEL` | `devin-ready` | Label that triggers remediation |
 | `ALLOWED_REPOS` | `cjada/superset` | Comma-separated allow-list of repositories |
+| `GITHUB_TOKEN` | unset | Optional, read-only; raises the rate limit for pull request polling |
 | `DEVIN_API_BASE` | `https://api.devin.ai` | Devin API base URL |
 | `DEVIN_API_KEY` | – | Service-user API key (required in real mode) |
 | `DEVIN_ORG_ID` | – | Devin organization ID, `org-…` (required in real mode) |
@@ -81,7 +92,7 @@ All credentials come from environment variables (`.env` is git-ignored; never co
 | `DEVIN_MAX_ACU_LIMIT` | unset | Per-session ACU cap |
 | `DEVIN_SESSION_TAGS` | `issue-remediator` | Tags applied to created sessions |
 | `DRY_RUN` | `true` | `true` simulates Devin; `false` calls the real API |
-| `POLL_INTERVAL_SECONDS` | `60` | Session status refresh interval |
+| `POLL_INTERVAL_SECONDS` | `60` | Session and pull request refresh interval |
 | `DATABASE_URL` | `sqlite:///./data/remediator.db` | SQLite location |
 
 ## Docker
@@ -158,16 +169,18 @@ rendering.
 - Status is polled rather than pushed; ACU and PR data are as fresh as the last poll.
 - No authentication on the dashboard, and no pagination.
 - Only `issues.labeled` is handled; issue edits, unlabeling, and PR review feedback are ignored.
-- "Effectiveness" is limited to what the API exposes (status, ACUs, PR presence, duration); it
-  does not track whether the PR was merged or whether CI passed.
+- Pull request outcomes are polled, not pushed, and an anonymous GitHub client is limited to 60
+  requests/hour (three calls per pull request per poll); set `GITHUB_TOKEN` for anything busier.
+- ACUs are only reported by the Devin API once a session ends, so in-flight rows show `0.0`.
+- The schema is grown by adding nullable columns at startup rather than by a migration tool.
 
 ## Production extensions
 
 - Replace the in-process background work with a real queue (Redis/RQ, Celery, or Postgres
   `SELECT … FOR UPDATE SKIP LOCKED`) with retries, back-off, and a dead-letter path.
 - Move to Postgres, add Alembic migrations, and run multiple stateless replicas.
-- Post progress back to the issue as comments, and reconcile PR merge/CI outcomes via
-  `pull_request` and `check_suite` webhooks for true effectiveness metrics.
+- Replace pull request polling with `pull_request` and `check_suite` webhooks, and post progress
+  back to the issue as comments.
 - Add auth (SSO/OIDC) to the dashboard, structured logging, and metrics/tracing.
 - Enforce per-repo concurrency limits and org-level ACU budgets before creating sessions.
 - Store secrets in a manager (AWS Secrets Manager, Vault) instead of a `.env` file.
