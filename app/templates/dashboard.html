@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Devin Issue Remediator</title>
+  <meta http-equiv="refresh" content="30" />
+  <link rel="stylesheet" href="{{ url_for('static', path='styles.css') }}" />
+</head>
+<body>
+<div class="wrap">
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">DR</div>
+      <div>
+        <h1>Devin Issue Remediator</h1>
+        <p class="subtitle">GitHub issues labelled <code>{{ trigger_label }}</code> become Devin sessions and pull requests.</p>
+      </div>
+    </div>
+    <div class="badges">
+      {% if dry_run %}
+        <span class="badge mode-dry"><span class="dot"></span>Dry run · simulated Devin</span>
+      {% else %}
+        <span class="badge mode-real"><span class="dot"></span>Live · Devin API</span>
+      {% endif %}
+      <span class="badge">trigger <code>{{ trigger_label }}</code></span>
+    </div>
+  </header>
+
+  <section class="stats">
+    <div class="stat"><div class="value">{{ total }}</div><div class="label">Total</div></div>
+    <div class="stat is-active"><div class="value">{{ active | length }}</div><div class="label">Active</div></div>
+    <div class="stat is-completed"><div class="value">{{ completed | length }}</div><div class="label">Completed</div></div>
+    <div class="stat is-failed"><div class="value">{{ failed | length }}</div><div class="label">Failed</div></div>
+    <div class="stat"><div class="value">{{ "%.0f%%" | format(pr_rate) if pr_rate is not none else "—" }}</div><div class="label">Completed with PR</div></div>
+    <div class="stat"><div class="value">{{ total_acus }}</div><div class="label">ACUs used</div></div>
+  </section>
+
+  {% macro section(title, rows, empty_text) %}
+  <section class="section">
+    <div class="section-head">
+      <h2>{{ title }}</h2>
+      <span class="count">{{ rows | length }}</span>
+    </div>
+    {% if rows %}
+    <table>
+      <thead>
+        <tr>
+          <th>Issue</th><th>Status</th><th>Devin session</th><th>Pull request</th>
+          <th>ACUs</th><th>Duration</th><th>Updated</th><th>Details</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td data-label="Issue">
+            <a class="issue-ref" href="{{ r.issue_url }}">{{ r.repo_full_name }}#{{ r.issue_number }}</a>
+            <div class="issue-title">{{ r.issue_title }}</div>
+          </td>
+          <td data-label="Status">
+            <span class="pill {{ r.status.value }}"><span class="dot"></span>{{ r.status.value.replace("_", " ") }}</span>
+            {% if r.session_status %}<span class="substatus">session: {{ r.session_status }}</span>{% endif %}
+          </td>
+          <td data-label="Devin session">
+            {% if r.session_url %}
+              <a class="mono" href="{{ r.session_url }}" title="{{ r.session_id }}">
+                {%- if r.session_id | length > 20 -%}
+                  {{ r.session_id[:10] }}…{{ r.session_id[-6:] }}
+                {%- else -%}{{ r.session_id }}{%- endif -%}
+              </a>
+            {% else %}<span class="muted">—</span>{% endif %}
+          </td>
+          <td data-label="Pull request">
+            {% if r.pr_url %}<a class="mono" href="{{ r.pr_url }}">#{{ r.pr_url.split('/')[-1] }}</a>
+            {% else %}<span class="muted">—</span>{% endif %}
+          </td>
+          <td class="nums" data-label="ACUs">{{ r.acus_consumed if r.acus_consumed is not none else "—" }}</td>
+          <td class="nums" data-label="Duration">{{ "%.0fs" | format(r.duration_seconds) if r.duration_seconds is not none else "—" }}</td>
+          <td class="nums muted" data-label="Updated">{{ r.updated_at.strftime("%b %d, %H:%M") }}</td>
+          <td data-label="Details">{% if r.error %}<span class="err-text">{{ r.error }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="empty">{{ empty_text }}</p>
+    {% endif %}
+  </section>
+  {% endmacro %}
+
+  {{ section("Active", active, "No remediation in flight.") }}
+  {{ section("Completed", completed, "No completed remediation yet.") }}
+  {{ section("Failed", failed, "No failures.") }}
+
+  <footer>Auto-refreshes every 30s · <a href="/api/remediations">JSON</a> · <a href="/healthz">health</a></footer>
+</div>
+</body>
+</html>
