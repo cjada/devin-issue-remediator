@@ -93,6 +93,10 @@ docker compose up --build
 
 The SQLite file is persisted to `./data` via a bind mount. Health check: `GET /healthz`.
 
+Behind a reverse proxy, set `FORWARDED_ALLOW_IPS` to that proxy's address so uvicorn honours its
+`X-Forwarded-*` headers; it defaults to `127.0.0.1`, and a wildcard would let any client spoof its
+scheme and source IP.
+
 ## GitHub webhook configuration
 
 In `cjada/superset` → **Settings → Webhooks → Add webhook**:

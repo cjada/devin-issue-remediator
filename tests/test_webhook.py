@@ -94,6 +94,8 @@ def test_dashboard_renders(client):
     assert page.status_code == 200
     assert "Devin Issue Remediator" in page.text
     assert "cjada/superset#107" in page.text
+    # Scheme-relative so the page is not broken by mixed content behind a TLS proxy.
+    assert '<link rel="stylesheet" href="/static/styles.css?v=' in page.text
 
 
 def test_relative_time_filter(client):
