@@ -150,7 +150,24 @@ footer { color: var(--muted); font-size: 0.78rem; text-align: center; margin-top
 @media (max-width: 720px) {
   .wrap { padding: 1.5rem 1rem 3rem; }
   thead { display: none; }
-  tbody td { display: block; border-top: none; padding: 0.25rem 1.1rem; }
+  tbody td {
+    display: grid;
+    grid-template-columns: 8.5rem 1fr;
+    gap: 0.5rem;
+    border-top: none;
+    padding: 0.25rem 1.1rem;
+  }
+  tbody td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+    padding-top: 0.1rem;
+  }
+  tbody td[data-label="Issue"] { display: block; padding-bottom: 0.4rem; }
+  tbody td[data-label="Issue"]::before { content: none; }
   tbody tr { display: block; border-top: 1px solid var(--border); padding: 0.7rem 0; }
   .issue-title { max-width: none; }
 }
