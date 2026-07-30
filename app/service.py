@@ -10,8 +10,10 @@ from sqlmodel import Session, select
 from app.config import Settings
 from app.devin_client import CreatedSession, DevinClient, SessionState
 from app.github import IssueLabelEvent
+from app.github_api import GitHubClient
 from app.models import (
     ACTIVE_STATUSES,
+    PullRequestState,
     Remediation,
     RemediationStatus,
     WebhookDelivery,
@@ -129,6 +131,7 @@ def refresh_remediation(db: Session, client: DevinClientProtocol, remediation: R
         return
 
     remediation.session_status = state.status
+    remediation.session_status_detail = state.status_detail
     remediation.acus_consumed = state.acus_consumed
     if state.pr_urls:
         remediation.pr_url = state.pr_urls[0]
@@ -137,6 +140,8 @@ def refresh_remediation(db: Session, client: DevinClientProtocol, remediation: R
         remediation.finished_at = remediation.finished_at or utcnow()
         if state.failed:
             remediation.error = state.status_detail or "Devin session ended in error"
+    elif state.awaiting_input:
+        remediation.status = RemediationStatus.WAITING_FOR_INPUT
     else:
         remediation.status = RemediationStatus.RUNNING
     remediation.updated_at = utcnow()
@@ -154,6 +159,46 @@ def refresh_active(db: Session, client: DevinClientProtocol) -> int:
     for remediation in active:
         refresh_remediation(db, client, remediation)
     return len(active)
+
+
+def refresh_pull_request(db: Session, github: GitHubClient, remediation: Remediation) -> None:
+    """Record how a Devin-authored pull request actually fared."""
+    if not remediation.pr_url:
+        return
+    try:
+        outcome = github.fetch_pull_request(remediation.pr_url)
+    except Exception as exc:  # noqa: BLE001 - PR enrichment must never break the poller
+        logger.warning("Failed to read %s: %s", remediation.pr_url, exc)
+        return
+    if outcome is None:
+        return
+
+    remediation.pr_state = outcome.state
+    remediation.pr_checks = outcome.checks
+    remediation.pr_review_state = outcome.review_state
+    remediation.pr_additions = outcome.additions
+    remediation.pr_deletions = outcome.deletions
+    remediation.pr_changed_files = outcome.changed_files
+    remediation.pr_merged_at = outcome.merged_at
+    remediation.updated_at = utcnow()
+    db.add(remediation)
+    db.commit()
+
+
+def refresh_pull_requests(db: Session, github: GitHubClient) -> int:
+    """Poll every pull request that has not reached a terminal state."""
+    statement = select(Remediation).where(
+        Remediation.pr_url.is_not(None),  # type: ignore[union-attr]
+        Remediation.dry_run == False,  # noqa: E712 - SQL comparison, not a Python bool
+        Remediation.pr_state.not_in(  # type: ignore[attr-defined]
+            (PullRequestState.MERGED, PullRequestState.CLOSED)
+        )
+        | Remediation.pr_state.is_(None),  # type: ignore[union-attr]
+    )
+    pending = list(db.exec(statement))
+    for remediation in pending:
+        refresh_pull_request(db, github, remediation)
+    return len(pending)
 
 
 def _fail(db: Session, remediation: Remediation, error: str) -> None:

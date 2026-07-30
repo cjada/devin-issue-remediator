@@ -3,7 +3,14 @@ import pytest
 from app.config import get_settings
 from app.devin_client import CreatedSession, DevinAPIError, SessionState
 from app.github import IssueLabelEvent
-from app.models import Remediation, RemediationStatus
+from app.github_api import GitHubAPIError, PullRequestOutcome
+from app.models import (
+    ACTIVE_STATUSES,
+    PullRequestState,
+    Remediation,
+    RemediationStatus,
+    utcnow,
+)
 from app.service import (
     DuplicateDelivery,
     IgnoredEvent,
@@ -11,6 +18,7 @@ from app.service import (
     build_client,
     record_delivery,
     refresh_active,
+    refresh_pull_requests,
     start_session,
 )
 from app.simulation import SimulatedDevinClient
@@ -90,3 +98,109 @@ def test_running_session_then_refresh_to_completed(db):
     assert remediation.status is RemediationStatus.COMPLETED
     assert remediation.pr_url == "https://x/pull/3"
     assert remediation.acus_consumed == 4.0
+
+
+class WaitingClient(SimulatedDevinClient):
+    """A live session that has gone idle pending a human reply."""
+
+    def create_session(self, prompt: str, title: str, repo: str) -> CreatedSession:
+        created = super().create_session(prompt, title, repo)
+        self._sessions[created.session_id] = SessionState(
+            status="running",
+            status_detail="waiting_for_user",
+            acus_consumed=2.0,
+            pr_urls=["https://github.com/cjada/superset/pull/4"],
+        )
+        return created
+
+
+def test_waiting_for_user_is_its_own_status(db):
+    client = WaitingClient()
+    accepted = accept_event(db, get_settings(), "svc-203", _event(203))
+    start_session(db, client, accepted.remediation_id)
+    refresh_active(db, client)
+
+    remediation = db.get(Remediation, accepted.remediation_id)
+    db.refresh(remediation)
+    assert remediation.status is RemediationStatus.WAITING_FOR_INPUT
+    assert remediation.session_status_detail == "waiting_for_user"
+    # Still in flight, so the poller keeps picking it up.
+    assert remediation.status in ACTIVE_STATUSES
+    assert remediation.finished_at is None
+
+
+class StubGitHub:
+    def __init__(self, outcome=None, error: Exception | None = None) -> None:
+        self.outcome = outcome
+        self.error = error
+        self.calls: list[str] = []
+
+    def fetch_pull_request(self, pr_url: str):
+        self.calls.append(pr_url)
+        if self.error:
+            raise self.error
+        return self.outcome
+
+
+def _merged_outcome() -> PullRequestOutcome:
+    return PullRequestOutcome(
+        state=PullRequestState.MERGED,
+        checks="passing",
+        review_state="approved",
+        additions=55,
+        deletions=4,
+        changed_files=2,
+        merged_at=utcnow(),
+    )
+
+
+def test_pull_request_outcome_is_recorded(db):
+    client = WaitingClient()
+    accepted = accept_event(db, get_settings(), "svc-204", _event(204))
+    start_session(db, client, accepted.remediation_id)
+    refresh_active(db, client)
+    remediation = db.get(Remediation, accepted.remediation_id)
+    remediation.dry_run = False
+    db.add(remediation)
+    db.commit()
+
+    github = StubGitHub(_merged_outcome())
+    assert refresh_pull_requests(db, github) == 1
+    db.refresh(remediation)
+    assert remediation.pr_state is PullRequestState.MERGED
+    assert remediation.pr_checks == "passing"
+    assert remediation.pr_review_state == "approved"
+    assert remediation.diff_summary == "+55 −4 · 2 files"
+
+    # Terminal pull requests are not polled again.
+    assert refresh_pull_requests(db, github) == 0
+
+
+def test_pull_request_errors_do_not_break_the_poller(db):
+    client = WaitingClient()
+    accepted = accept_event(db, get_settings(), "svc-205", _event(205))
+    start_session(db, client, accepted.remediation_id)
+    refresh_active(db, client)
+    remediation = db.get(Remediation, accepted.remediation_id)
+    remediation.dry_run = False
+    db.add(remediation)
+    db.commit()
+
+    github = StubGitHub(error=GitHubAPIError("rate limited"))
+    assert refresh_pull_requests(db, github) == 1
+    db.refresh(remediation)
+    assert remediation.pr_state is None
+
+
+def test_simulated_rows_are_never_polled(db):
+    client = WaitingClient()
+    accepted = accept_event(db, get_settings(), "svc-206", _event(206))
+    start_session(db, client, accepted.remediation_id)
+    refresh_active(db, client)
+
+    github = StubGitHub(_merged_outcome())
+    refresh_pull_requests(db, github)
+    assert "pull/4" not in "".join(url for url in github.calls if str(accepted.remediation_id) in url)
+    remediation = db.get(Remediation, accepted.remediation_id)
+    assert remediation.dry_run is True
+    assert remediation.pr_state is None

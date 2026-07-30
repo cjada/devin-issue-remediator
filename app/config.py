@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     github_webhook_secret: str = Field(default="", alias="GITHUB_WEBHOOK_SECRET")
     trigger_label: str = Field(default="devin-ready", alias="TRIGGER_LABEL")
     allowed_repos: str = Field(default="cjada/superset", alias="ALLOWED_REPOS")
+    # Optional: public repositories are readable without one, at a lower rate limit.
+    github_token: str = Field(default="", alias="GITHUB_TOKEN")
 
     # Devin
     devin_api_base: str = Field(default="https://api.devin.ai", alias="DEVIN_API_BASE")
