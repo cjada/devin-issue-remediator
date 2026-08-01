@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Devin Issue Remediator</title>
-  <meta http-equiv="refresh" content="30" />
+  <meta http-equiv="refresh" content="{{ page_refresh_seconds }}" />
   <link rel="stylesheet" href="/static/styles.css?v={{ asset_version }}" />
 </head>
 <body>
@@ -108,7 +108,10 @@
               {{ r.duration_seconds | humanize_duration }}
             {%- endif -%}
           </td>
-          <td class="nums muted" data-label="Updated" title="{{ r.updated_at.strftime('%Y-%m-%d %H:%M UTC') }}">{{ r.updated_at | relative_time }}</td>
+          <td class="nums muted" data-label="Updated"
+              title="Last change {{ r.updated_at.strftime('%Y-%m-%d %H:%M:%S UTC') }}{% if r.pr_checked_at %} · pull request last checked {{ r.pr_checked_at.strftime('%H:%M:%S UTC') }}{% endif %}">
+            {{ r.updated_at | relative_time }}
+          </td>
           <td data-label="Details">
             {%- if r.error -%}
               <span class="err-text">{{ r.error }}</span>
@@ -142,7 +145,7 @@
   {{ section("Failed", failed, "No failures.") }}
 
   <footer>
-    Updated {{ generated_at.strftime("%H:%M UTC") }} · auto-refreshes every 30s ·
+    Updated {{ generated_at.strftime("%H:%M UTC") }} · auto-refreshes every {{ page_refresh_seconds }}s ·
     <a href="/api/remediations">JSON</a> · <a href="/healthz">health</a>
   </footer>
 </div>

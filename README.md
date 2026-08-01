@@ -92,7 +92,8 @@ All credentials come from environment variables (`.env` is git-ignored; never co
 | `DEVIN_MAX_ACU_LIMIT` | unset | Per-session ACU cap |
 | `DEVIN_SESSION_TAGS` | `issue-remediator` | Tags applied to created sessions |
 | `DRY_RUN` | `true` | `true` simulates Devin; `false` calls the real API |
-| `POLL_INTERVAL_SECONDS` | `60` | Session and pull request refresh interval |
+| `POLL_INTERVAL_SECONDS` | `60` | Devin session refresh interval |
+| `PR_POLL_INTERVAL_SECONDS` | `20` | GitHub pull request refresh interval, and the dashboard's auto-refresh |
 | `DATABASE_URL` | `sqlite:///./data/remediator.db` | SQLite location |
 
 ## Docker

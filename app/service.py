@@ -2,6 +2,7 @@
 
 import logging
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Protocol
 
 from sqlalchemy.exc import IntegrityError
@@ -130,6 +131,14 @@ def refresh_remediation(db: Session, client: DevinClientProtocol, remediation: R
         db.commit()
         return
 
+    before = (
+        remediation.status,
+        remediation.session_status,
+        remediation.session_status_detail,
+        remediation.acus_consumed,
+        remediation.pr_url,
+    )
+
     remediation.session_status = state.status
     remediation.session_status_detail = state.status_detail
     remediation.acus_consumed = state.acus_consumed
@@ -144,7 +153,15 @@ def refresh_remediation(db: Session, client: DevinClientProtocol, remediation: R
         remediation.status = RemediationStatus.WAITING_FOR_INPUT
     else:
         remediation.status = RemediationStatus.RUNNING
-    remediation.updated_at = utcnow()
+    after = (
+        remediation.status,
+        remediation.session_status,
+        remediation.session_status_detail,
+        remediation.acus_consumed,
+        remediation.pr_url,
+    )
+    if before != after:
+        remediation.updated_at = utcnow()
     db.add(remediation)
     db.commit()
 
@@ -161,6 +178,14 @@ def refresh_active(db: Session, client: DevinClientProtocol) -> int:
     return len(active)
 
 
+def _same(stored: object, fetched: object) -> bool:
+    """SQLite returns naive UTC datetimes, so compare them on equal footing."""
+    if isinstance(stored, datetime) and isinstance(fetched, datetime):
+        normalized = fetched if fetched.tzinfo is None else fetched.astimezone(UTC)
+        return stored.replace(tzinfo=None) == normalized.replace(tzinfo=None)
+    return stored == fetched
+
+
 def refresh_pull_request(db: Session, github: GitHubClient, remediation: Remediation) -> None:
     """Record how a Devin-authored pull request actually fared."""
     if not remediation.pr_url:
@@ -175,14 +200,26 @@ def refresh_pull_request(db: Session, github: GitHubClient, remediation: Remedia
     if outcome is None:
         return
 
-    remediation.pr_state = outcome.state
-    remediation.pr_checks = outcome.checks
-    remediation.pr_review_state = outcome.review_state
-    remediation.pr_additions = outcome.additions
-    remediation.pr_deletions = outcome.deletions
-    remediation.pr_changed_files = outcome.changed_files
-    remediation.pr_merged_at = outcome.merged_at
-    remediation.updated_at = utcnow()
+    now = utcnow()
+    fields = {
+        "pr_state": outcome.state,
+        "pr_checks": outcome.checks,
+        "pr_review_state": outcome.review_state,
+        "pr_additions": outcome.additions,
+        "pr_deletions": outcome.deletions,
+        "pr_changed_files": outcome.changed_files,
+        "pr_merged_at": outcome.merged_at,
+    }
+    # "Updated" should mean the remediation changed, not that we asked again; polling every
+    # 30s would otherwise pin every row to "just now" forever.
+    changed = False
+    for name, value in fields.items():
+        if not _same(getattr(remediation, name), value):
+            setattr(remediation, name, value)
+            changed = True
+    remediation.pr_checked_at = now
+    if changed:
+        remediation.updated_at = now
     db.add(remediation)
     db.commit()
 
