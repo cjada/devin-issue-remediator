@@ -67,9 +67,13 @@ of `api.github.com` and point the app at it without touching app code, via a har
 # stub_harness.py — run with: uvicorn stub_harness:app --port 8020
 import httpx, app.main as main
 from app.github_api import GitHubClient
+
+
 class Stubbed(GitHubClient):
     def __init__(self, token="", client=None):
         super().__init__(token, httpx.Client(timeout=10.0, base_url="http://127.0.0.1:9099"))
+
+
 main.GitHubClient = Stubbed
 app = main.app
 ```
