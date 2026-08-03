@@ -167,12 +167,15 @@ rendering.
 - Single-process SQLite; fine for one instance, not for horizontal scaling.
 - Background work lives in-process. A crash between accepting a webhook and creating the
   session leaves a `queued` row that the poller does not retry (there is no retry/back-off yet).
-- Status is polled rather than pushed; ACU and PR data are as fresh as the last poll.
+- Status is polled rather than pushed; session and PR data are as fresh as the last poll.
 - No authentication on the dashboard, and no pagination.
 - Only `issues.labeled` is handled; issue edits, unlabeling, and PR review feedback are ignored.
 - Pull request outcomes are polled, not pushed, and an anonymous GitHub client is limited to 60
   requests/hour (three calls per pull request per poll); set `GITHUB_TOKEN` for anything busier.
-- ACUs are only reported by the Devin API once a session ends, so in-flight rows show `0.0`.
+- ACU usage is captured from the API and stored, but not displayed: every session in the
+  organisation this was built against reports `acus_consumed: 0.0`, and the per-session and
+  org-wide consumption endpoints both return `total_acus: 0.0` with no daily rows, so the
+  meter is empty at the source. A column of zeros is worse than no column.
 - The schema is grown by adding nullable columns at startup rather than by a migration tool.
 
 ## Production extensions

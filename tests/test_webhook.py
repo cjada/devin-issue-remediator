@@ -34,7 +34,8 @@ def test_accepts_and_processes_labeled_issue(client):
     assert row["status"] == "completed"
     assert row["session_id"].startswith("devin-simulated-")
     assert row["pr_url"].startswith("https://github.com/cjada/superset/pull/")
-    assert row["acus_consumed"] == 3.5
+    # The simulator does not invent usage figures.
+    assert row["acus_consumed"] is None
 
 
 def test_duplicate_delivery_is_ignored(client):

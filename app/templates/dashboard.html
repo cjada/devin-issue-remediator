@@ -46,7 +46,6 @@
     <div class="stat is-completed"><div class="value">{{ completed | length }}</div><div class="label">Completed</div></div>
     <div class="stat is-failed"><div class="value">{{ failed | length }}</div><div class="label">Failed</div></div>
     <div class="stat"><div class="value">{{ "%.0f%%" | format(merge_rate) if merge_rate is not none else "—" }}</div><div class="label">Pull requests merged</div></div>
-    <div class="stat"><div class="value">{{ total_acus }}</div><div class="label">ACUs used</div></div>
   </section>
 
   {% macro section(title, rows, empty_text) %}
@@ -60,7 +59,7 @@
       <thead>
         <tr>
           <th>Issue</th><th>Status</th><th>Devin session</th><th>Pull request</th>
-          <th>ACUs</th><th>Duration</th><th>Updated</th><th>Details</th>
+          <th>Duration</th><th>Updated</th><th>Details</th>
         </tr>
       </thead>
       <tbody>
@@ -98,7 +97,6 @@
               {% endif %}
             {% else %}<span class="muted">—</span>{% endif %}
           </td>
-          <td class="nums" data-label="ACUs">{{ r.acus_consumed if r.acus_consumed is not none else "—" }}</td>
           <td class="nums" data-label="Duration">
             {%- if r.duration_seconds is none -%}
               <span class="muted">—</span>

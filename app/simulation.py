@@ -20,7 +20,9 @@ class SimulatedDevinClient:
         self._sessions[session_id] = SessionState(
             status="exit",
             status_detail="finished",
-            acus_consumed=3.5,
+            # Devin reports usage or it does not; inventing a number makes simulated rows
+            # look like real ones.
+            acus_consumed=None,
             pr_urls=[f"https://github.com/{repo}/pull/0"],
         )
         self._repo_by_session[session_id] = repo
