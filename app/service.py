@@ -149,7 +149,9 @@ def refresh_remediation(db: Session, client: DevinClientProtocol, remediation: R
         remediation.finished_at = remediation.finished_at or utcnow()
         if state.failed:
             remediation.error = state.status_detail or "Devin session ended in error"
-    elif state.awaiting_input:
+    elif state.awaiting_input and not remediation.pr_url:
+        # Devin idles in this state after it finishes too, so it only means a human is
+        # needed while there is no pull request to show for the work.
         remediation.status = RemediationStatus.WAITING_FOR_INPUT
     else:
         remediation.status = RemediationStatus.RUNNING
@@ -218,6 +220,16 @@ def refresh_pull_request(db: Session, github: GitHubClient, remediation: Remedia
             setattr(remediation, name, value)
             changed = True
     remediation.pr_checked_at = now
+    settled = outcome.state in (PullRequestState.MERGED, PullRequestState.CLOSED)
+    if settled and remediation.status is not RemediationStatus.FAILED:
+        # The outcome is settled, so the remediation is over however long Devin's session
+        # lingers in its post-work idle state.
+        if remediation.status is not RemediationStatus.COMPLETED:
+            remediation.status = RemediationStatus.COMPLETED
+            changed = True
+        if remediation.finished_at is None:
+            remediation.finished_at = outcome.merged_at or now
+            changed = True
     if changed:
         remediation.updated_at = now
     db.add(remediation)
