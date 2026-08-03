@@ -19,6 +19,7 @@ from app.service import (
     record_delivery,
     refresh_active,
     refresh_pull_requests,
+    settle_finished_pull_requests,
     start_session,
 )
 from app.simulation import SimulatedDevinClient
@@ -350,3 +351,25 @@ def test_a_settled_pull_request_does_not_mask_a_failed_session(db):
     refresh_pull_requests(db, StubGitHub(_outcome(PullRequestState.CLOSED)))
     db.refresh(remediation)
     assert remediation.status is RemediationStatus.FAILED
+
+
+def test_rows_settled_before_this_rule_existed_are_closed_out(db):
+    # A merged pull request is excluded from polling, so an already-tracked row would
+    # otherwise stay active forever.
+    client = WaitingClient()
+    accepted = accept_event(db, get_settings(), "svc-323", _event(323))
+    start_session(db, client, accepted.remediation_id)
+    refresh_active(db, client)
+    remediation = db.get(Remediation, accepted.remediation_id)
+    remediation.dry_run = False
+    remediation.status = RemediationStatus.WAITING_FOR_INPUT
+    remediation.pr_state = PullRequestState.MERGED
+    remediation.pr_merged_at = utcnow()
+    db.add(remediation)
+    db.commit()
+
+    assert settle_finished_pull_requests(db) == 1
+    db.refresh(remediation)
+    assert remediation.status is RemediationStatus.COMPLETED
+    assert remediation.finished_at == remediation.pr_merged_at
+    assert settle_finished_pull_requests(db) == 0
