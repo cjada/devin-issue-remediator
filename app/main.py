@@ -250,7 +250,6 @@ def dashboard(
     with_pr = [r for r in completed if r.pr_url]
     merged = [r for r in remediations if r.pr_state is PullRequestState.MERGED]
     tracked_prs = [r for r in remediations if r.pr_state is not None]
-    total_acus = sum(r.acus_consumed or 0 for r in remediations)
     return TEMPLATES.TemplateResponse(
         request,
         "dashboard.html",
@@ -268,7 +267,6 @@ def dashboard(
             "pr_rate": (100 * len(with_pr) / len(completed)) if completed else None,
             "merged": len(merged),
             "merge_rate": (100 * len(merged) / len(tracked_prs)) if tracked_prs else None,
-            "total_acus": round(total_acus, 2),
             "pr_polling_paused_until": github.rate_limited_until if github.rate_limited else None,
             "github_authenticated": github.authenticated,
             "page_refresh_seconds": settings.pr_poll_interval_seconds,
