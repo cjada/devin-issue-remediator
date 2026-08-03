@@ -91,7 +91,9 @@ class Remediation(SQLModel, table=True):
             start = start.replace(tzinfo=UTC)
         if end.tzinfo is None:
             end = end.replace(tzinfo=UTC)
-        return (end - start).total_seconds()
+        # `finished_at` can be backdated to a pull request's merge time, which clock skew
+        # or an imported row can place before the session started.
+        return max(0.0, (end - start).total_seconds())
 
     @property
     def diff_summary(self) -> str | None:

@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 import pytest
 
 from app.config import get_settings
@@ -395,3 +397,17 @@ def test_a_blocked_session_is_surfaced_even_with_a_pull_request(db):
     assert remediation.pr_url
     assert remediation.session_status_detail == "blocked"
     assert remediation.status is RemediationStatus.WAITING_FOR_INPUT
+
+
+def test_duration_never_reads_negative_when_finished_at_is_backdated():
+    started = utcnow()
+    remediation = Remediation(
+        repo_full_name="cjada/superset",
+        issue_number=325,
+        issue_title="t",
+        issue_url="u",
+        delivery_id="svc-325",
+        session_started_at=started,
+        finished_at=started - timedelta(hours=3),
+    )
+    assert remediation.duration_seconds == 0.0
