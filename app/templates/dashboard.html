@@ -43,6 +43,7 @@
     <div class="stat"><div class="value">{{ total }}</div><div class="label">Total</div></div>
     <div class="stat is-active"><div class="value">{{ active | length }}</div><div class="label">Active</div></div>
     <div class="stat is-waiting"><div class="value">{{ waiting | length }}</div><div class="label">Awaiting input</div></div>
+    <div class="stat is-review"><div class="value">{{ reviewing | length }}</div><div class="label">Awaiting review</div></div>
     <div class="stat is-completed"><div class="value">{{ completed | length }}</div><div class="label">Completed</div></div>
     <div class="stat is-failed"><div class="value">{{ failed | length }}</div><div class="label">Failed</div></div>
     <div class="stat"><div class="value">{{ "%.0f%%" | format(merge_rate) if merge_rate is not none else "—" }}</div><div class="label">Pull requests merged</div></div>
@@ -71,7 +72,11 @@
             <div class="issue-title">{{ r.issue_title }}</div>
           </td>
           <td data-label="Status">
-            <span class="pill {{ r.status.value }}"><span class="dot"></span>{{ r.status.value.replace("_", " ") }}</span>
+            {% if r.awaits_review %}
+              <span class="pill awaiting_review"><span class="dot"></span>awaiting review</span>
+            {% else %}
+              <span class="pill {{ r.status.value }}"><span class="dot"></span>{{ r.status.value.replace("_", " ") }}</span>
+            {% endif %}
             {% if r.session_status %}<span class="substatus">session: {{ r.session_status }}</span>{% endif %}
           </td>
           <td data-label="Devin session">
@@ -139,6 +144,7 @@
 
   {{ section("Active", active, "Nothing in flight — label an issue to start a remediation.") }}
   {{ section("Awaiting input", waiting, "No session is blocked on a human.") }}
+  {{ section("Awaiting review", reviewing, "No fix is waiting on a reviewer.") }}
   {{ section("Completed", completed, "No completed remediation yet.") }}
   {{ section("Failed", failed, "No failures.") }}
 

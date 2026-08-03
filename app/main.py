@@ -245,9 +245,11 @@ def dashboard(
         for r in remediations
         if r.status in ACTIVE_STATUSES and r.status is not RemediationStatus.WAITING_FOR_INPUT
     ]
-    completed = [r for r in remediations if r.status is RemediationStatus.COMPLETED]
+    reviewing = [r for r in remediations if r.awaits_review]
+    completed = [r for r in remediations if r.status is RemediationStatus.COMPLETED and not r.awaits_review]
     failed = [r for r in remediations if r.status is RemediationStatus.FAILED]
-    with_pr = [r for r in completed if r.pr_url]
+    finished = completed + reviewing
+    with_pr = [r for r in finished if r.pr_url]
     merged = [r for r in remediations if r.pr_state is PullRequestState.MERGED]
     tracked_prs = [r for r in remediations if r.pr_state is not None]
     return TEMPLATES.TemplateResponse(
@@ -261,10 +263,11 @@ def dashboard(
             "generated_at": datetime.now(UTC),
             "active": active,
             "waiting": waiting,
+            "reviewing": reviewing,
             "completed": completed,
             "failed": failed,
             "total": len(remediations),
-            "pr_rate": (100 * len(with_pr) / len(completed)) if completed else None,
+            "pr_rate": (100 * len(with_pr) / len(finished)) if finished else None,
             "merged": len(merged),
             "merge_rate": (100 * len(merged) / len(tracked_prs)) if tracked_prs else None,
             "pr_polling_paused_until": github.rate_limited_until if github.rate_limited else None,
