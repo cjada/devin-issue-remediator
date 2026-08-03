@@ -153,3 +153,40 @@ def test_stylesheet_is_served(client):
 
 def test_healthz(client):
     assert client.get("/healthz").json() == {"status": "ok", "dry_run": True}
+
+
+def test_a_finished_session_with_an_open_pull_request_awaits_review(client):
+    """A merged fix and a fix nobody has looked at are different outcomes."""
+    from sqlmodel import Session, select
+
+    from app.db import engine
+    from app.models import PullRequestState, Remediation, RemediationStatus
+
+    body, headers = signed_headers(issue_payload(number=111), "d-111")
+    client.post("/webhooks/github", content=body, headers=headers)
+
+    with Session(engine) as db:
+        row = db.exec(select(Remediation).where(Remediation.issue_number == 111)).one()
+        row.status = RemediationStatus.COMPLETED
+        row.pr_url = "https://github.com/cjada/superset/pull/15"
+        row.pr_state = PullRequestState.OPEN
+        db.add(row)
+        db.commit()
+        assert row.awaits_review is True
+
+        row.pr_state = PullRequestState.MERGED
+        db.add(row)
+        db.commit()
+        assert row.awaits_review is False
+
+        row.pr_state = PullRequestState.OPEN
+        db.add(row)
+        db.commit()
+
+    page = client.get("/").text
+    assert "Needs attention" in page
+    assert 'class="pill awaiting_review"' in page
+    # The row belongs with the work waiting on a person, not with Completed.
+    blocked, completed = page.split("<h2>Completed</h2>", 1)
+    assert "cjada/superset#111" in blocked
+    assert "cjada/superset#111" not in completed

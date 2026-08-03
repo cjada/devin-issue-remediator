@@ -96,6 +96,15 @@ class Remediation(SQLModel, table=True):
         return max(0.0, (end - start).total_seconds())
 
     @property
+    def awaits_review(self) -> bool:
+        """Devin is done, but the fix has not landed and a human has to act.
+
+        Grouping this with merged fixes under "completed" hides the only outstanding work
+        the automation cannot do for itself.
+        """
+        return self.status is RemediationStatus.COMPLETED and self.pr_state is PullRequestState.OPEN
+
+    @property
     def diff_summary(self) -> str | None:
         if self.pr_additions is None or self.pr_deletions is None:
             return None

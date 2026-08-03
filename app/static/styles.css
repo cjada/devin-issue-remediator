@@ -162,6 +162,7 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent) 4%, transparent); 
 .pill.queued, .pill.session_created, .pill.running { color: var(--warn); background: var(--warn-bg); }
 .pill.waiting_for_input { color: var(--accent); background: var(--accent-bg, var(--warn-bg)); }
 .pill.completed { color: var(--ok); background: var(--ok-bg); }
+.pill.awaiting_review { color: var(--accent); background: var(--accent-bg, var(--warn-bg)); }
 .pill.failed { color: var(--err); background: var(--err-bg); }
 .pill.running .dot { animation: pulse 1.4s ease-in-out infinite; }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
