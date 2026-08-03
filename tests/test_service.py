@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 import pytest
 
 from app.config import get_settings
@@ -19,6 +21,7 @@ from app.service import (
     record_delivery,
     refresh_active,
     refresh_pull_requests,
+    settle_finished_pull_requests,
     start_session,
 )
 from app.simulation import SimulatedDevinClient
@@ -103,19 +106,27 @@ def test_running_session_then_refresh_to_completed(db):
 class WaitingClient(SimulatedDevinClient):
     """A live session that has gone idle pending a human reply."""
 
+    pr_urls: list[str] = ["https://github.com/cjada/superset/pull/4"]
+
     def create_session(self, prompt: str, title: str, repo: str) -> CreatedSession:
         created = super().create_session(prompt, title, repo)
         self._sessions[created.session_id] = SessionState(
             status="running",
             status_detail="waiting_for_user",
             acus_consumed=2.0,
-            pr_urls=["https://github.com/cjada/superset/pull/4"],
+            pr_urls=list(self.pr_urls),
         )
         return created
 
 
+class WaitingWithoutPullRequestClient(WaitingClient):
+    """Idle in the same way, but with nothing to show for the work yet."""
+
+    pr_urls: list[str] = []
+
+
 def test_waiting_for_user_is_its_own_status(db):
-    client = WaitingClient()
+    client = WaitingWithoutPullRequestClient()
     accepted = accept_event(db, get_settings(), "svc-203", _event(203))
     start_session(db, client, accepted.remediation_id)
     refresh_active(db, client)
@@ -292,3 +303,111 @@ def test_unchanged_pull_request_polls_do_not_bump_updated_at(db):
     db.refresh(remediation)
     assert remediation.pr_state is PullRequestState.MERGED
     assert remediation.updated_at > first_update
+
+
+def test_idle_session_with_a_pull_request_is_not_reported_as_awaiting_input(db):
+    # Devin idles in `waiting_for_user` once it has opened its pull request too, which
+    # needs nobody's attention beyond a review.
+    client = WaitingClient()
+    accepted = accept_event(db, get_settings(), "svc-320", _event(320))
+    start_session(db, client, accepted.remediation_id)
+    refresh_active(db, client)
+
+    remediation = db.get(Remediation, accepted.remediation_id)
+    db.refresh(remediation)
+    assert remediation.pr_url == "https://github.com/cjada/superset/pull/4"
+    assert remediation.session_status_detail == "waiting_for_user"
+    assert remediation.status is RemediationStatus.RUNNING
+
+
+def test_a_settled_pull_request_completes_the_remediation(db):
+    client = WaitingClient()
+    accepted = accept_event(db, get_settings(), "svc-321", _event(321))
+    start_session(db, client, accepted.remediation_id)
+    refresh_active(db, client)
+    remediation = db.get(Remediation, accepted.remediation_id)
+    remediation.dry_run = False
+    remediation.pr_url = "https://github.com/cjada/superset/pull/10"
+    db.add(remediation)
+    db.commit()
+
+    refresh_pull_requests(db, StubGitHub(_merged_outcome()))
+    db.refresh(remediation)
+    assert remediation.status is RemediationStatus.COMPLETED
+    assert remediation.finished_at is not None
+    assert remediation.status not in ACTIVE_STATUSES
+
+
+def test_a_settled_pull_request_does_not_mask_a_failed_session(db):
+    client = WaitingClient()
+    accepted = accept_event(db, get_settings(), "svc-322", _event(322))
+    start_session(db, client, accepted.remediation_id)
+    remediation = db.get(Remediation, accepted.remediation_id)
+    remediation.dry_run = False
+    remediation.status = RemediationStatus.FAILED
+    remediation.error = "Devin session ended in error"
+    remediation.pr_url = "https://github.com/cjada/superset/pull/10"
+    db.add(remediation)
+    db.commit()
+
+    refresh_pull_requests(db, StubGitHub(_outcome(PullRequestState.CLOSED)))
+    db.refresh(remediation)
+    assert remediation.status is RemediationStatus.FAILED
+
+
+def test_rows_settled_before_this_rule_existed_are_closed_out(db):
+    # A merged pull request is excluded from polling, so an already-tracked row would
+    # otherwise stay active forever.
+    client = WaitingClient()
+    accepted = accept_event(db, get_settings(), "svc-323", _event(323))
+    start_session(db, client, accepted.remediation_id)
+    refresh_active(db, client)
+    remediation = db.get(Remediation, accepted.remediation_id)
+    remediation.dry_run = False
+    remediation.status = RemediationStatus.WAITING_FOR_INPUT
+    remediation.pr_state = PullRequestState.MERGED
+    remediation.pr_merged_at = utcnow()
+    db.add(remediation)
+    db.commit()
+
+    assert settle_finished_pull_requests(db) == 1
+    db.refresh(remediation)
+    assert remediation.status is RemediationStatus.COMPLETED
+    assert remediation.finished_at == remediation.pr_merged_at
+    assert settle_finished_pull_requests(db) == 0
+
+
+class BlockedClient(WaitingClient):
+    """Genuinely stuck on a human, despite having opened a pull request."""
+
+    def create_session(self, prompt: str, title: str, repo: str) -> CreatedSession:
+        created = super().create_session(prompt, title, repo)
+        self._sessions[created.session_id].status_detail = "blocked"
+        return created
+
+
+def test_a_blocked_session_is_surfaced_even_with_a_pull_request(db):
+    client = BlockedClient()
+    accepted = accept_event(db, get_settings(), "svc-324", _event(324))
+    start_session(db, client, accepted.remediation_id)
+    refresh_active(db, client)
+
+    remediation = db.get(Remediation, accepted.remediation_id)
+    db.refresh(remediation)
+    assert remediation.pr_url
+    assert remediation.session_status_detail == "blocked"
+    assert remediation.status is RemediationStatus.WAITING_FOR_INPUT
+
+
+def test_duration_never_reads_negative_when_finished_at_is_backdated():
+    started = utcnow()
+    remediation = Remediation(
+        repo_full_name="cjada/superset",
+        issue_number=325,
+        issue_title="t",
+        issue_url="u",
+        delivery_id="svc-325",
+        session_started_at=started,
+        finished_at=started - timedelta(hours=3),
+    )
+    assert remediation.duration_seconds == 0.0

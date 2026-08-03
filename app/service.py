@@ -149,7 +149,10 @@ def refresh_remediation(db: Session, client: DevinClientProtocol, remediation: R
         remediation.finished_at = remediation.finished_at or utcnow()
         if state.failed:
             remediation.error = state.status_detail or "Devin session ended in error"
-    elif state.awaiting_input:
+    elif state.blocked or (state.awaiting_input and not remediation.pr_url):
+        # Devin idles in `waiting_for_user` after it finishes too, so that detail only
+        # means a human is needed while there is no pull request to show for the work. A
+        # blocked session always needs one.
         remediation.status = RemediationStatus.WAITING_FOR_INPUT
     else:
         remediation.status = RemediationStatus.RUNNING
@@ -218,14 +221,57 @@ def refresh_pull_request(db: Session, github: GitHubClient, remediation: Remedia
             setattr(remediation, name, value)
             changed = True
     remediation.pr_checked_at = now
+    if _settle(remediation, now):
+        changed = True
     if changed:
         remediation.updated_at = now
     db.add(remediation)
     db.commit()
 
 
+def _settle(remediation: Remediation, now: datetime) -> bool:
+    """A merged or closed pull request ends the remediation.
+
+    Devin's session lingers in its post-work idle state long after the work is done, so
+    the pull request is the authority on whether a remediation is over.
+    """
+    if remediation.pr_state not in (PullRequestState.MERGED, PullRequestState.CLOSED):
+        return False
+    if remediation.status is RemediationStatus.FAILED:
+        return False
+    changed = False
+    if remediation.status is not RemediationStatus.COMPLETED:
+        remediation.status = RemediationStatus.COMPLETED
+        changed = True
+    if remediation.finished_at is None:
+        remediation.finished_at = remediation.pr_merged_at or now
+        changed = True
+    return changed
+
+
+def settle_finished_pull_requests(db: Session) -> int:
+    """Close out rows whose pull request settled before this rule existed."""
+    statement = select(Remediation).where(
+        Remediation.status.in_(ACTIVE_STATUSES),  # type: ignore[attr-defined]
+        Remediation.pr_state.in_(  # type: ignore[attr-defined]
+            (PullRequestState.MERGED, PullRequestState.CLOSED)
+        ),
+    )
+    settled = 0
+    now = utcnow()
+    for remediation in db.exec(statement):
+        if _settle(remediation, now):
+            remediation.updated_at = now
+            db.add(remediation)
+            settled += 1
+    if settled:
+        db.commit()
+    return settled
+
+
 def refresh_pull_requests(db: Session, github: GitHubClient) -> int:
     """Poll every pull request that has not reached a terminal state."""
+    settle_finished_pull_requests(db)
     statement = select(Remediation).where(
         Remediation.pr_url.is_not(None),  # type: ignore[union-attr]
         Remediation.dry_run == False,  # noqa: E712 - SQL comparison, not a Python bool
