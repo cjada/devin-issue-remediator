@@ -264,3 +264,31 @@ def test_a_rate_limited_client_is_not_polled_at_all(db):
 
     assert refresh_pull_requests(db, github) == 0
     assert github.calls == []
+
+
+def test_unchanged_pull_request_polls_do_not_bump_updated_at(db):
+    client = WaitingClient()
+    accepted = accept_event(db, get_settings(), "svc-311", _event(311))
+    start_session(db, client, accepted.remediation_id)
+    refresh_active(db, client)
+    remediation = db.get(Remediation, accepted.remediation_id)
+    remediation.dry_run = False
+    db.add(remediation)
+    db.commit()
+
+    github = StubGitHub(_outcome(PullRequestState.OPEN))
+    refresh_pull_requests(db, github)
+    db.refresh(remediation)
+    first_update = remediation.updated_at
+    first_check = remediation.pr_checked_at
+
+    refresh_pull_requests(db, github)
+    db.refresh(remediation)
+    assert remediation.updated_at == first_update
+    assert remediation.pr_checked_at > first_check
+
+    github.outcome = _merged_outcome()
+    refresh_pull_requests(db, github)
+    db.refresh(remediation)
+    assert remediation.pr_state is PullRequestState.MERGED
+    assert remediation.updated_at > first_update

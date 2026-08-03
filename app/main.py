@@ -89,6 +89,26 @@ async def _poller(app: FastAPI) -> None:
 def _refresh_once(app: FastAPI) -> None:
     with Session(engine) as db:
         refresh_active(db, app.state.devin_client)
+
+
+async def _pr_poller(app: FastAPI) -> None:
+    """Polls GitHub on its own schedule.
+
+    A merge is a human action the dashboard should reflect within seconds, and reading a
+    pull request is far cheaper than a Devin session refresh, so it runs more often than
+    (and independently of) the session poller.
+    """
+    settings: Settings = app.state.settings
+    while True:
+        await asyncio.sleep(settings.pr_poll_interval_seconds)
+        try:
+            await asyncio.to_thread(_refresh_prs_once, app)
+        except Exception:  # noqa: BLE001 - the poller must never die
+            logger.exception("Pull request poll failed")
+
+
+def _refresh_prs_once(app: FastAPI) -> None:
+    with Session(engine) as db:
         refresh_pull_requests(db, app.state.github_client)
 
 
@@ -100,11 +120,12 @@ async def lifespan(app: FastAPI):
     app.state.devin_client = build_client(settings)
     app.state.github_client = GitHubClient(settings.github_token)
     logger.info("Started in %s mode", "DRY_RUN" if settings.dry_run else "REAL")
-    task = asyncio.create_task(_poller(app))
+    tasks = [asyncio.create_task(_poller(app)), asyncio.create_task(_pr_poller(app))]
     try:
         yield
     finally:
-        task.cancel()
+        for task in tasks:
+            task.cancel()
 
 
 app = FastAPI(title="Devin Issue Remediator", lifespan=lifespan)
@@ -250,5 +271,6 @@ def dashboard(
             "total_acus": round(total_acus, 2),
             "pr_polling_paused_until": github.rate_limited_until if github.rate_limited else None,
             "github_authenticated": github.authenticated,
+            "page_refresh_seconds": settings.pr_poll_interval_seconds,
         },
     )

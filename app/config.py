@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     # Behaviour
     dry_run: bool = Field(default=True, alias="DRY_RUN")
     poll_interval_seconds: int = Field(default=60, alias="POLL_INTERVAL_SECONDS")
+    pr_poll_interval_seconds: int = Field(default=20, alias="PR_POLL_INTERVAL_SECONDS")
     database_url: str = Field(default="sqlite:///./data/remediator.db", alias="DATABASE_URL")
 
     @property

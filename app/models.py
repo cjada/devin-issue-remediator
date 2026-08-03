@@ -71,6 +71,7 @@ class Remediation(SQLModel, table=True):
     pr_deletions: int | None = None
     pr_changed_files: int | None = None
     pr_merged_at: datetime | None = None
+    pr_checked_at: datetime | None = None
 
     acus_consumed: float | None = None
     error: str | None = None
