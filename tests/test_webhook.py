@@ -184,9 +184,9 @@ def test_a_finished_session_with_an_open_pull_request_awaits_review(client):
         db.commit()
 
     page = client.get("/").text
-    assert "Awaiting review" in page
+    assert "Needs attention" in page
     assert 'class="pill awaiting_review"' in page
-    # The row belongs to the new section, not to Completed.
-    reviewing, completed = page.split("<h2>Completed</h2>", 1)
-    assert "cjada/superset#111" in reviewing
+    # The row belongs with the work waiting on a person, not with Completed.
+    blocked, completed = page.split("<h2>Completed</h2>", 1)
+    assert "cjada/superset#111" in blocked
     assert "cjada/superset#111" not in completed

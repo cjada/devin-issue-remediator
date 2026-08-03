@@ -103,7 +103,6 @@ h1 { font-size: 1.35rem; margin: 0; letter-spacing: -0.02em; }
 .stat.is-completed .value { color: var(--ok); }
 .stat.is-failed .value { color: var(--err); }
 .stat.is-waiting .value { color: var(--warn); }
-.stat.is-review .value { color: var(--accent); }
 
 /* Section cards */
 .section {

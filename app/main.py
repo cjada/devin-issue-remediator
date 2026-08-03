@@ -247,6 +247,9 @@ def dashboard(
     ]
     reviewing = [r for r in remediations if r.awaits_review]
     completed = [r for r in remediations if r.status is RemediationStatus.COMPLETED and not r.awaits_review]
+    # Both groups are stalled on a person rather than on the automation, so they belong
+    # in one place; the per-row pill still says which person.
+    blocked = waiting + reviewing
     failed = [r for r in remediations if r.status is RemediationStatus.FAILED]
     finished = completed + reviewing
     with_pr = [r for r in finished if r.pr_url]
@@ -262,8 +265,7 @@ def dashboard(
             "asset_version": ASSET_VERSION,
             "generated_at": datetime.now(UTC),
             "active": active,
-            "waiting": waiting,
-            "reviewing": reviewing,
+            "blocked": blocked,
             "completed": completed,
             "failed": failed,
             "total": len(remediations),
