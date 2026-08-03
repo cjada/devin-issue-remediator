@@ -373,3 +373,25 @@ def test_rows_settled_before_this_rule_existed_are_closed_out(db):
     assert remediation.status is RemediationStatus.COMPLETED
     assert remediation.finished_at == remediation.pr_merged_at
     assert settle_finished_pull_requests(db) == 0
+
+
+class BlockedClient(WaitingClient):
+    """Genuinely stuck on a human, despite having opened a pull request."""
+
+    def create_session(self, prompt: str, title: str, repo: str) -> CreatedSession:
+        created = super().create_session(prompt, title, repo)
+        self._sessions[created.session_id].status_detail = "blocked"
+        return created
+
+
+def test_a_blocked_session_is_surfaced_even_with_a_pull_request(db):
+    client = BlockedClient()
+    accepted = accept_event(db, get_settings(), "svc-324", _event(324))
+    start_session(db, client, accepted.remediation_id)
+    refresh_active(db, client)
+
+    remediation = db.get(Remediation, accepted.remediation_id)
+    db.refresh(remediation)
+    assert remediation.pr_url
+    assert remediation.session_status_detail == "blocked"
+    assert remediation.status is RemediationStatus.WAITING_FOR_INPUT

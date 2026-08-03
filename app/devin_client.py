@@ -27,6 +27,9 @@ class SessionState:
 
     TERMINAL = ("exit", "error", "suspended")
     AWAITING_INPUT = ("waiting_for_user", "blocked")
+    # Devin also idles here after finishing its work, so this detail alone does not mean a
+    # human is needed; `blocked` always does.
+    IDLE_AFTER_WORK = ("waiting_for_user",)
 
     @property
     def is_terminal(self) -> bool:
@@ -36,6 +39,11 @@ class SessionState:
     def awaiting_input(self) -> bool:
         """The session is alive but idle until a human replies."""
         return self.status_detail in self.AWAITING_INPUT
+
+    @property
+    def blocked(self) -> bool:
+        """The session cannot proceed at all without a human."""
+        return self.awaiting_input and self.status_detail not in self.IDLE_AFTER_WORK
 
     @property
     def failed(self) -> bool:

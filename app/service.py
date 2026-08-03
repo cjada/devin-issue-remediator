@@ -149,9 +149,10 @@ def refresh_remediation(db: Session, client: DevinClientProtocol, remediation: R
         remediation.finished_at = remediation.finished_at or utcnow()
         if state.failed:
             remediation.error = state.status_detail or "Devin session ended in error"
-    elif state.awaiting_input and not remediation.pr_url:
-        # Devin idles in this state after it finishes too, so it only means a human is
-        # needed while there is no pull request to show for the work.
+    elif state.blocked or (state.awaiting_input and not remediation.pr_url):
+        # Devin idles in `waiting_for_user` after it finishes too, so that detail only
+        # means a human is needed while there is no pull request to show for the work. A
+        # blocked session always needs one.
         remediation.status = RemediationStatus.WAITING_FOR_INPUT
     else:
         remediation.status = RemediationStatus.RUNNING
